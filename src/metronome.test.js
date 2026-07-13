@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  advanceMinuteDeadline,
   bpmFromTaps,
   clampBpm,
   makePattern,
@@ -22,4 +23,7 @@ test("patterns and tempo training stay predictable", () => {
   assert.equal(nextTrainingBpm(100, 105, 3), 103);
   assert.equal(nextTrainingBpm(103, 105, 3), 105);
   assert.equal(nextTrainingBpm(120, 100, 7), 113);
+  assert.equal(advanceMinuteDeadline(59.9, 60), null);
+  assert.equal(advanceMinuteDeadline(60, 60), 120);
+  assert.equal(advanceMinuteDeadline(185, 60), 240);
 });

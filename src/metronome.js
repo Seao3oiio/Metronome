@@ -35,3 +35,8 @@ export function nextTrainingBpm(current, target, step) {
   const next = current + direction * Math.max(1, step);
   return direction > 0 ? Math.min(next, target) : Math.max(next, target);
 }
+
+export function advanceMinuteDeadline(elapsed, deadline) {
+  if (elapsed < deadline) return null;
+  return deadline + (Math.floor((elapsed - deadline) / 60) + 1) * 60;
+}

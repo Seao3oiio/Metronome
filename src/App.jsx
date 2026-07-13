@@ -16,6 +16,7 @@ import * as Tone from "tone";
 import {
   BPM_MAX,
   BPM_MIN,
+  advanceMinuteDeadline,
   bpmFromTaps,
   clampBpm,
   makePattern,
@@ -54,7 +55,9 @@ const DEFAULT_SETTINGS = {
   pattern: makePattern(4, 1),
   sound: "click",
   trainer: false,
+  startBpm: 96,
   targetBpm: 120,
+  changeMode: "bars",
   changeEvery: 4,
   changeAmount: 2,
   volume: 72,
@@ -86,7 +89,9 @@ function loadSettings() {
       subdivision,
       pattern,
       sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : "click",
+      startBpm: clampBpm(saved.startBpm ?? saved.bpm ?? 96),
       targetBpm: clampBpm(saved.targetBpm ?? 120),
+      changeMode: saved.changeMode === "minute" ? "minute" : "bars",
       changeEvery: [1, 2, 4, 8, 16].includes(saved.changeEvery) ? saved.changeEvery : 4,
       changeAmount: [1, 2, 3, 5, 10].includes(saved.changeAmount)
         ? saved.changeAmount
@@ -156,6 +161,7 @@ export default function App() {
   const startingRef = useRef(false);
   const stepRef = useRef(0);
   const barsRef = useRef(0);
+  const minuteDeadlineRef = useRef(60);
   const tapsRef = useRef([]);
   const generationRef = useRef(0);
   const audioRef = useRef(null);
@@ -208,6 +214,11 @@ export default function App() {
       if (run !== generationRef.current) return;
 
       const transport = Tone.getTransport();
+      if (settingsRef.current.trainer) {
+        const bpm = settingsRef.current.startBpm;
+        settingsRef.current = { ...settingsRef.current, bpm };
+        setSettings((current) => ({ ...current, bpm }));
+      }
       const output = new Tone.Gain(
         settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
       ).toDestination();
@@ -216,6 +227,7 @@ export default function App() {
       stepRef.current = 0;
       barsRef.current = 0;
       transport.position = 0;
+      minuteDeadlineRef.current = 60;
       transport.bpm.value = settingsRef.current.bpm;
 
       const loop = new Tone.Loop((time) => {
@@ -223,12 +235,21 @@ export default function App() {
         const stepsPerBar = current.beats * current.subdivision;
         const stepIndex = stepRef.current % stepsPerBar;
 
-        if (
+        const nextMinuteDeadline =
+          current.trainer && current.changeMode === "minute"
+            ? advanceMinuteDeadline(
+                transport.getSecondsAtTime(time),
+                minuteDeadlineRef.current,
+              )
+            : null;
+        const barsDue =
+          current.changeMode === "bars" &&
           stepIndex === 0 &&
           barsRef.current > 0 &&
-          current.trainer &&
-          barsRef.current % current.changeEvery === 0
-        ) {
+          barsRef.current % current.changeEvery === 0;
+
+        if (current.trainer && (barsDue || nextMinuteDeadline !== null)) {
+          if (nextMinuteDeadline !== null) minuteDeadlineRef.current = nextMinuteDeadline;
           const nextBpm = nextTrainingBpm(current.bpm, current.targetBpm, current.changeAmount);
           if (nextBpm !== current.bpm) {
             current = { ...current, bpm: nextBpm };
@@ -419,8 +440,15 @@ export default function App() {
 
   const changeTrainer = (patch) => {
     barsRef.current = 0;
+    minuteDeadlineRef.current = Tone.getTransport().seconds + 60;
     updateSettings(patch);
   };
+
+  const mainBeatColumns = settings.beats === 6 ? 3 : settings.beats;
+  const patternColumns =
+    settings.subdivision === 1 ? mainBeatColumns : settings.subdivision === 2 ? 2 : 1;
+  const patternStepColumns =
+    settings.subdivision === 8 ? 4 : settings.subdivision >= 5 ? 3 : settings.subdivision;
 
   const isIOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -452,9 +480,17 @@ export default function App() {
           </span>
           <strong>Pulse</strong>
         </a>
-        <div className="ready-pill" role="status" aria-live="polite">
-          <span aria-hidden="true" />
-          {status}
+        <div className="topbar-actions">
+          <div className="ready-pill" role="status" aria-live="polite">
+            <span aria-hidden="true" />
+            {status}
+          </div>
+          {playing && (
+            <button className="topbar-stop" type="button" onClick={() => stop()}>
+              <Pause fill="currentColor" />
+              暂停
+            </button>
+          )}
         </div>
       </header>
 
@@ -615,7 +651,6 @@ export default function App() {
                   aria-pressed={settings.subdivision === option.value}
                   onClick={() => changeRhythm({ subdivision: option.value })}
                 >
-                  <b>{option.value}</b>
                   <span>{option.label}</span>
                 </button>
               ))}
@@ -643,12 +678,20 @@ export default function App() {
               </div>
             </div>
             <div className="pattern-scroll">
-              <div className="pattern-beats">
+              <div
+                className="pattern-beats"
+                style={{
+                  "--beat-columns": patternColumns,
+                }}
+              >
                 {Array.from({ length: settings.beats }, (_, beat) => (
                   <div
                     className="pattern-beat"
                     key={beat}
-                    style={{ "--steps": settings.subdivision }}
+                    style={{
+                      "--steps": settings.subdivision,
+                      "--step-columns": patternStepColumns,
+                    }}
                   >
                     <strong>{beat + 1}</strong>
                     <div className="pattern-steps">
@@ -717,6 +760,27 @@ export default function App() {
             {settings.trainer && (
               <div className="trainer-grid">
                 <label>
+                  <span>起始</span>
+                  <span className="field-with-unit">
+                    <input
+                      key={settings.startBpm}
+                      type="number"
+                      min={BPM_MIN}
+                      max={BPM_MAX}
+                      defaultValue={settings.startBpm}
+                      onBlur={(event) => {
+                        const value = clampBpm(event.currentTarget.value);
+                        event.currentTarget.value = value;
+                        changeTrainer({ startBpm: value });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                    />
+                    <em>BPM</em>
+                  </span>
+                </label>
+                <label>
                   <span>目标</span>
                   <span className="field-with-unit">
                     <input
@@ -740,14 +804,26 @@ export default function App() {
                 <label>
                   <span>间隔</span>
                   <select
-                    value={settings.changeEvery}
-                    onChange={(event) => changeTrainer({ changeEvery: Number(event.target.value) })}
+                    value={
+                      settings.changeMode === "minute"
+                        ? "minute"
+                        : `bars-${settings.changeEvery}`
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      changeTrainer(
+                        value === "minute"
+                          ? { changeMode: "minute" }
+                          : { changeMode: "bars", changeEvery: Number(value.slice(5)) },
+                      );
+                    }}
                   >
                     {[1, 2, 4, 8, 16].map((bars) => (
-                      <option key={bars} value={bars}>
+                      <option key={bars} value={`bars-${bars}`}>
                         {bars} 小节
                       </option>
                     ))}
+                    <option value="minute">每分钟</option>
                   </select>
                 </label>
                 <label>
@@ -797,12 +873,6 @@ export default function App() {
           </div>
         </aside>
       </main>
-      {playing && (
-        <button className="mobile-stop" type="button" onClick={() => stop()} aria-label="暂停节拍器">
-          <Pause fill="currentColor" />
-          暂停
-        </button>
-      )}
       <dialog
         ref={installDialogRef}
         className="install-dialog"

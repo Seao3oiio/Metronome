@@ -104,6 +104,16 @@ input:focus-visible {
   margin-bottom: 24px;
 }
 
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.topbar-stop {
+  display: none;
+}
+
 .brand {
   display: inline-flex;
   gap: 12px;
@@ -663,23 +673,10 @@ input[type="range"]::-moz-range-thumb {
 
 .subdivision-grid button {
   display: flex;
-  min-height: 64px;
+  min-height: 48px;
   border-color: var(--line);
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-}
-
-.subdivision-grid b {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  margin-bottom: 3px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.055);
-  color: var(--muted-strong);
-  font-size: 12px;
-  place-items: center;
 }
 
 .subdivision-grid span {
@@ -715,19 +712,17 @@ input[type="range"]::-moz-range-thumb {
 .pattern-scroll {
   margin-inline: -2px;
   padding: 2px 2px 8px;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scrollbar-color: rgba(139, 123, 255, 0.38) transparent;
 }
 
 .pattern-beats {
-  display: flex;
-  width: max-content;
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(var(--beat-columns), minmax(0, 1fr));
   gap: 8px;
 }
 
 .pattern-beat {
-  min-width: calc(var(--steps) * 48px + 12px);
+  min-width: 0;
   padding: 8px;
   border: 1px solid rgba(255, 255, 255, 0.065);
   border-radius: 12px;
@@ -744,13 +739,14 @@ input[type="range"]::-moz-range-thumb {
 
 .pattern-steps {
   display: grid;
-  grid-template-columns: repeat(var(--steps), 44px);
+  grid-template-columns: repeat(var(--step-columns), minmax(44px, 1fr));
   gap: 4px;
 }
 
 .pattern-step {
   display: grid;
-  width: 44px;
+  width: 100%;
+  min-width: 0;
   height: 44px;
   padding: 0;
   border: 1px solid var(--line);
@@ -938,7 +934,7 @@ input[type="range"]::-moz-range-thumb {
 
 .trainer-grid {
   display: grid;
-  grid-template-columns: 1.12fr 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 14px;
 }
@@ -1123,10 +1119,6 @@ footer {
   font-size: 11px;
 }
 
-.mobile-stop {
-  display: none;
-}
-
 .install-dialog {
   width: min(420px, calc(100% - 28px));
   padding: 28px;
@@ -1264,6 +1256,19 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .topbar {
+    position: sticky;
+    top: max(8px, env(safe-area-inset-top));
+    z-index: 30;
+    margin-inline: -8px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 17px;
+    background: rgba(14, 17, 23, 0.9);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(18px);
+  }
+
   .stage-card,
   .settings-card {
     min-height: auto;
@@ -1278,29 +1283,24 @@ footer {
     font-size: 16px;
   }
 
-  .mobile-stop {
-    position: fixed;
-    right: max(18px, env(safe-area-inset-right));
-    bottom: max(18px, env(safe-area-inset-bottom));
-    z-index: 20;
-    display: flex;
+  .topbar-stop {
+    display: inline-flex;
     gap: 8px;
     align-items: center;
     justify-content: center;
-    min-width: 112px;
-    min-height: 54px;
+    min-height: 42px;
+    padding: 0 12px;
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 999px;
     background: rgba(120, 103, 244, 0.94);
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
     color: #101019;
+    font-size: 12px;
     font-weight: 750;
     cursor: pointer;
-    backdrop-filter: blur(14px);
   }
 
-  .mobile-stop svg {
-    width: 18px;
+  .topbar-stop svg {
+    width: 16px;
   }
 }
 
@@ -1404,18 +1404,9 @@ footer {
     gap: 5px;
   }
 
-  .subdivision-grid button {
-    min-height: 62px;
-  }
-
   .pattern-actions button {
     min-width: 50px;
     min-height: 44px;
-  }
-
-  .pattern-beats {
-    width: 100%;
-    flex-wrap: wrap;
   }
 
   .practice-note {
