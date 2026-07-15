@@ -850,19 +850,9 @@ input[type="range"]::-moz-range-thumb {
   width: 17px;
 }
 
-.practice-presets {
-  padding: 18px 0 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.practice-preset-path,
 .rhythm-library {
   display: grid;
   gap: 8px;
-}
-
-.practice-preset-path {
-  grid-template-columns: 110px minmax(190px, 1fr) minmax(150px, 0.7fr) auto;
 }
 
 .rhythm-library {
@@ -870,7 +860,6 @@ input[type="range"]::-moz-range-thumb {
   padding: 18px 0 4px;
 }
 
-.practice-preset-path select,
 .rhythm-library select,
 .rhythm-library input {
   width: 100%;
@@ -884,13 +873,11 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text);
 }
 
-.practice-preset-path select:focus,
 .rhythm-library select:focus,
 .rhythm-library input:focus {
   border-color: rgba(116, 228, 208, 0.48);
 }
 
-.practice-preset-path button,
 .rhythm-library button {
   display: inline-flex;
   min-height: 46px;
@@ -905,7 +892,6 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-.practice-preset-path button svg,
 .rhythm-library button svg {
   width: 17px;
 }
@@ -1837,6 +1823,32 @@ footer {
   width: 17px;
 }
 
+.musicxml-import {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.musicxml-import input {
+  max-width: 190px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.musicxml-import input::file-selector-button {
+  margin-right: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(116, 228, 208, 0.08);
+  color: var(--text);
+  cursor: pointer;
+}
+
 .copy-toast {
   position: fixed;
   bottom: max(22px, env(safe-area-inset-bottom));
@@ -2003,20 +2015,6 @@ footer {
 
   .rhythm-share-actions span {
     display: none;
-  }
-
-  .practice-preset-path {
-    grid-template-columns: 1fr;
-  }
-
-  .practice-preset-path select,
-  .practice-preset-path button {
-    grid-column: 1;
-    font-size: 16px;
-  }
-
-  .practice-preset-path button {
-    justify-content: center;
   }
 
   .rhythm-library {

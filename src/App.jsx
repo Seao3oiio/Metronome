@@ -60,6 +60,12 @@ import {
 import { clonePracticeRhythm, PRACTICE_PRESET_WEEKS } from "./practicePresets.js";
 
 const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
+const TUTORIAL_PREFIX = "tutorial:";
+const PRACTICE_PRESETS = PRACTICE_PRESET_WEEKS.flatMap((week) =>
+  week.exercises.flatMap((exercise) =>
+    exercise.presets.map((preset) => ({ week, exercise, preset })),
+  ),
+);
 
 const QUICK_PATTERNS = [
   { id: "beat", label: "每拍一次", steps: [1] },
@@ -554,13 +560,6 @@ export default function App() {
   const [savedRhythms, setSavedRhythms] = useState(loadRhythmLibrary);
   const [selectedRhythmId, setSelectedRhythmId] = useState("");
   const [rhythmName, setRhythmName] = useState("");
-  const [presetWeekId, setPresetWeekId] = useState(PRACTICE_PRESET_WEEKS[0].id);
-  const [presetExerciseId, setPresetExerciseId] = useState(
-    PRACTICE_PRESET_WEEKS[0].exercises[0].id,
-  );
-  const [practicePresetId, setPracticePresetId] = useState(
-    PRACTICE_PRESET_WEEKS[0].exercises[0].presets[0].id,
-  );
   const [advancedRhythm, setAdvancedRhythm] = useState(
     () => window.location.hash === "#rhythm",
   );
@@ -1405,19 +1404,47 @@ export default function App() {
     }
   };
 
+  const applyImportedRhythm = (rhythm, name = "") => {
+    if (playbackIntentRef.current) stop("节奏已导入");
+    setEditorBarIndex(loopStart(rhythm.loopBar));
+    setBpmDraft(String(rhythm.bpm));
+    setSelectedRhythmId("");
+    setRhythmName(name);
+    updateSettings({ ...rhythm, startBpm: rhythm.bpm });
+    setShowRhythmCode(false);
+    setStatus("节奏已导入");
+  };
+
   const importRhythm = () => {
     try {
-      const rhythm = decodeRhythm(rhythmCode);
-      if (playbackIntentRef.current) stop("节奏已导入");
-      setEditorBarIndex(loopStart(rhythm.loopBar));
-      setBpmDraft(String(rhythm.bpm));
-      setSelectedRhythmId("");
-      setRhythmName("");
-      updateSettings({ ...rhythm, startBpm: rhythm.bpm });
-      setShowRhythmCode(false);
-      setStatus("节奏已导入");
+      applyImportedRhythm(decodeRhythm(rhythmCode));
     } catch {
       setStatus("编码无效");
+    }
+  };
+
+  const importMusicXml = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const { musicXmlToRhythm } = await import("./musicXml.js");
+      const rhythm = musicXmlToRhythm(await file.text(), settingsRef.current.bpm);
+      const unsupported =
+        rhythm.bpm < BPM_MIN ||
+        rhythm.bpm > BPM_MAX ||
+        !BEAT_UNITS.includes(rhythm.beatUnit) ||
+        rhythm.bars.some((bar) =>
+          bar.beats.length < 1 ||
+          bar.beats.length > MAX_BEATS ||
+          bar.beats.some(({ steps }) =>
+            steps.length < 1 || steps.length > MAX_SUBDIVISION
+          )
+        );
+      if (unsupported) throw new Error("速度、拍号或细分超出高级节奏支持范围");
+      applyImportedRhythm(rhythm, file.name.replace(/\.(musicxml|xml)$/i, "").slice(0, 40));
+    } catch (error) {
+      setStatus(`MusicXML 无法导入：${error.message}`);
     }
   };
 
@@ -1465,6 +1492,28 @@ export default function App() {
       setRhythmName("");
       return;
     }
+    if (id.startsWith(TUTORIAL_PREFIX)) {
+      const entry = PRACTICE_PRESETS.find(
+        ({ preset }) => preset.id === id.slice(TUTORIAL_PREFIX.length),
+      );
+      if (!entry) return;
+      const next = clonePracticeRhythm(entry.preset);
+      const name = `${entry.week.label} · ${entry.exercise.label}${
+        entry.exercise.presets.length > 1 ? ` · ${entry.preset.label}` : ""
+      }`;
+      if (playbackIntentRef.current) stop("节奏已切换");
+      setEditorBarIndex(0);
+      setSelectingBars(false);
+      setSelectedBarIndexes([]);
+      setBpmDraft(String(next.bpm));
+      setRhythmName(name.slice(0, 40));
+      updateSettings({ ...next, startBpm: next.bpm });
+      const silent = next.bars.every((bar) =>
+        bar.beats.every((beat) => beat.steps.every((step) => step === 0)),
+      );
+      setStatus(silent ? "教材要求本练习不使用节拍器" : `已载入 ${entry.preset.label}`);
+      return;
+    }
     const saved = savedRhythms.find((item) => item.id === id);
     if (!saved) return;
     try {
@@ -1494,51 +1543,6 @@ export default function App() {
     } catch {
       setStatus("删除失败");
     }
-  };
-
-  const presetWeek =
-    PRACTICE_PRESET_WEEKS.find(({ id }) => id === presetWeekId) ??
-    PRACTICE_PRESET_WEEKS[0];
-  const presetExercise =
-    presetWeek.exercises.find(({ id }) => id === presetExerciseId) ??
-    presetWeek.exercises[0];
-  const practicePreset =
-    presetExercise.presets.find(({ id }) => id === practicePresetId) ??
-    presetExercise.presets[0];
-
-  const changePresetWeek = (id) => {
-    const week = PRACTICE_PRESET_WEEKS.find((item) => item.id === id);
-    if (!week) return;
-    const exercise = week.exercises[0];
-    setPresetWeekId(id);
-    setPresetExerciseId(exercise.id);
-    setPracticePresetId(exercise.presets[0].id);
-  };
-
-  const changePresetExercise = (id) => {
-    const exercise = presetWeek.exercises.find((item) => item.id === id);
-    if (!exercise) return;
-    setPresetExerciseId(id);
-    setPracticePresetId(exercise.presets[0].id);
-  };
-
-  const applyPracticePreset = () => {
-    if (playbackIntentRef.current) stop("节奏已切换");
-    const next = clonePracticeRhythm(practicePreset);
-    const name = `${presetWeek.label} · ${presetExercise.label}${
-      presetExercise.presets.length > 1 ? ` · ${practicePreset.label}` : ""
-    }`;
-    setEditorBarIndex(0);
-    setSelectingBars(false);
-    setSelectedBarIndexes([]);
-    setBpmDraft(String(next.bpm));
-    setSelectedRhythmId("");
-    setRhythmName(name.slice(0, 40));
-    updateSettings({ ...next, startBpm: next.bpm });
-    const silent = next.bars.every((bar) =>
-      bar.beats.every((beat) => beat.steps.every((step) => step === 0)),
-    );
-    setStatus(silent ? "教材要求本练习不使用节拍器" : `已载入 ${practicePreset.label}`);
   };
 
   const changeTrainer = (patch) => {
@@ -1955,58 +1959,31 @@ export default function App() {
             </a>
           </div>
 
-          <div className="practice-presets" hidden={!advancedRhythm}>
-            <div className="setting-label">
-              <span>教材预设</span>
-              <small>7 周 · 66 个练习</small>
-            </div>
-            <div className="practice-preset-path">
-              <select
-                value={presetWeek.id}
-                onChange={(event) => changePresetWeek(event.target.value)}
-                aria-label="选择教材周次"
-              >
-                {PRACTICE_PRESET_WEEKS.map((week) => (
-                  <option key={week.id} value={week.id}>{week.label}</option>
-                ))}
-              </select>
-              <select
-                value={presetExercise.id}
-                onChange={(event) => changePresetExercise(event.target.value)}
-                aria-label="选择教材练习"
-              >
-                {presetWeek.exercises.map((exercise) => (
-                  <option key={exercise.id} value={exercise.id}>{exercise.label}</option>
-                ))}
-              </select>
-              {presetExercise.presets.length > 1 && (
-                <select
-                  value={practicePreset.id}
-                  onChange={(event) => setPracticePresetId(event.target.value)}
-                  aria-label="选择练习谱例"
-                >
-                  {presetExercise.presets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>{preset.label}</option>
-                  ))}
-                </select>
-              )}
-              <button type="button" onClick={applyPracticePreset}>
-                <ListChecks />
-                <span>载入</span>
-              </button>
-            </div>
-          </div>
-
           <div className="rhythm-library" hidden={!advancedRhythm}>
             <select
               value={selectedRhythmId}
               onChange={(event) => switchLocalRhythm(event.target.value)}
-              aria-label="切换本地节奏"
+              aria-label="切换节奏预设"
             >
               <option value="">新节奏</option>
-              {savedRhythms.map((saved) => (
-                <option key={saved.id} value={saved.id}>{saved.name}</option>
+              {PRACTICE_PRESET_WEEKS.map((week) => (
+                <optgroup key={week.id} label={`教程 / ${week.label}`}>
+                  {week.exercises.flatMap((exercise) =>
+                    exercise.presets.map((preset) => (
+                      <option key={preset.id} value={`${TUTORIAL_PREFIX}${preset.id}`}>
+                        {exercise.label}{exercise.presets.length > 1 ? ` / ${preset.label}` : ""}
+                      </option>
+                    )),
+                  )}
+                </optgroup>
               ))}
+              {savedRhythms.length > 0 && (
+                <optgroup label="我的预设">
+                  {savedRhythms.map((saved) => (
+                    <option key={saved.id} value={saved.id}>{saved.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             <input
               type="text"
@@ -2027,7 +2004,7 @@ export default function App() {
               className="is-danger"
               type="button"
               onClick={deleteLocalRhythm}
-              disabled={!selectedRhythmId}
+              disabled={!savedRhythms.some(({ id }) => id === selectedRhythmId)}
               aria-label="删除当前保存的节奏"
               title="删除当前保存的节奏"
             >
@@ -2622,6 +2599,14 @@ export default function App() {
             导入
           </button>
         </div>
+        <label className="musicxml-import">
+          <span>或导入 MusicXML 乐谱</span>
+          <input
+            type="file"
+            accept=".musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml"
+            onChange={importMusicXml}
+          />
+        </label>
       </dialog>
       <dialog
         ref={installDialogRef}

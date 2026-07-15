@@ -4,12 +4,17 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "npm run generate-presets",
     "dev": "vite",
+    "generate-presets": "node scripts/generate-practice-presets.mjs",
+    "prebuild": "npm run generate-presets",
     "build": "vite build",
     "preview": "vite preview",
+    "pretest": "npm run generate-presets",
     "test": "node --test src/metronome.test.js"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.10.0",
     "lucide-react": "^1.24.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

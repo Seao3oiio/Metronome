@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { FLAG_GLYPHS, REST_GLYPHS } from "./bravuraGlyphs.js";
 import { clonePracticeRhythm, PRACTICE_PRESET_WEEKS } from "./practicePresets.js";
+import { musicXmlToRhythm } from "./musicXml.js";
 import {
   BEAT_UNITS,
   advanceMinuteDeadline,
@@ -45,6 +47,114 @@ test("the PDF practice library covers all 7 weeks and 66 exercises", () => {
     assert.equal(clampBpm(rhythm.bpm), rhythm.bpm);
     assert.ok(BEAT_UNITS.includes(rhythm.beatUnit));
     assert.deepEqual(normalizeBars(rhythm.bars), rhythm.bars);
+  });
+});
+
+test("every catalog entry has a readable MusicXML score matching the generated preset", () => {
+  const scoresRoot = new URL("../resources/scores/", import.meta.url);
+  const catalog = JSON.parse(readFileSync(new URL("catalog.json", scoresRoot), "utf8"));
+  const catalogExercises = catalog.flatMap(({ exercises }) => exercises);
+  const catalogPresets = catalogExercises.flatMap(({ pages, presets }) =>
+    presets.map((preset) => ({ ...preset, pages })),
+  );
+  const generatedPresets = new Map(
+    PRACTICE_PRESET_WEEKS.flatMap(({ exercises }) =>
+      exercises.flatMap(({ presets }) => presets.map((preset) => [preset.id, preset])),
+    ),
+  );
+
+  assert.equal(catalog.length, 7);
+  assert.equal(catalogExercises.length, 66);
+  assert.equal(catalogPresets.length, 92);
+  assert.equal(new Set(catalogPresets.map(({ id }) => id)).size, 92);
+  assert.equal(new Set(catalogPresets.map(({ source }) => source)).size, 92);
+  catalogExercises.forEach(({ pages }) => assert.ok(pages.length > 0));
+  assert.deepEqual(catalogExercises.find(({ id }) => id === "w3-ex8").pages, [35, 36]);
+  assert.deepEqual(catalogExercises.find(({ id }) => id === "w3-ex9").pages, [37]);
+  catalogPresets.forEach(({ id, source, pages }) => {
+    const xml = readFileSync(new URL(source, scoresRoot), "utf8");
+    assert.match(xml, new RegExp(`<source>PDF pages ${pages.join(", ")}</source>`));
+    const parsed = musicXmlToRhythm(xml);
+    const preset = generatedPresets.get(id);
+    assert.ok(preset, `missing generated preset ${id}`);
+    assert.deepEqual(parsed, {
+      bpm: preset.bpm,
+      beatUnit: preset.beatUnit,
+      bars: preset.bars,
+      loopBar: preset.loopBar,
+    });
+  });
+});
+
+test("Qing Hua Ci triggers once per written note onset", () => {
+  const preset = PRACTICE_PRESET_WEEKS[1].exercises.find(({ id }) => id === "w2-ex9").presets[0];
+  const attacks = preset.bars.map((bar) =>
+    bar.beats
+      .flatMap(({ steps }) => steps.length === 1 ? [steps[0], 0] : steps)
+      .map((step) => (step ? "x" : "-"))
+      .join(""),
+  );
+
+  assert.equal(attacks.length, 16);
+  assert.deepEqual(attacks.slice(0, 4), ["-----xxx", "x-xxx-xx", "xxx--xxx", "x-xxx-xx"]);
+  assert.equal(attacks.at(-1), "--------");
+});
+
+test("MusicXML converts rests, durations, chords, ties, and accents to note onsets", () => {
+  const xml = `<?xml version="1.0"?>
+    <score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Rhythm</part-name></score-part></part-list>
+      <part id="P1"><measure number="1">
+        <attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+        <direction><sound tempo="80"/></direction>
+        <note><rest/><duration>2</duration><type>quarter</type></note>
+        <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type><notations><articulations><accent/></articulations></notations></note>
+        <note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type></note>
+        <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type></note>
+        <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+        <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><tie type="stop"/></note>
+      </measure></part>
+    </score-partwise>`;
+
+  assert.deepEqual(musicXmlToRhythm(xml), {
+    bpm: 80,
+    beatUnit: 4,
+    bars: [{ beats: [
+      { steps: [0] },
+      { steps: [2, 1] },
+      { steps: [1] },
+      { steps: [0] },
+    ] }],
+    loopBar: null,
+  });
+});
+
+test("MusicXML reads later tempo directions, beat units, and notation ties", () => {
+  const xml = `<?xml version="1.0"?>
+    <score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Rhythm</part-name></score-part></part-list>
+      <part id="P1"><measure number="1">
+        <attributes><divisions>2</divisions><time><beats>6</beats><beat-type>8</beat-type></time></attributes>
+        <direction><direction-type><words>With energy</words></direction-type></direction>
+        <direction><sound tempo="60"/></direction>
+        <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><notations><tied type="stop"/></notations></note>
+        <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+        <note><rest/><duration>4</duration></note>
+      </measure></part>
+    </score-partwise>`;
+
+  assert.deepEqual(musicXmlToRhythm(xml), {
+    bpm: 120,
+    beatUnit: 8,
+    bars: [{ beats: [
+      { steps: [0] },
+      { steps: [1] },
+      { steps: [0] },
+      { steps: [0] },
+      { steps: [0] },
+      { steps: [0] },
+    ] }],
+    loopBar: null,
   });
 });
 

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="4.0">
+  <work><work-title>EX7 根音在三弦的C调原位三和弦</work-title></work>
+  <movement-title>EX7 根音在三弦的C调原位三和弦</movement-title>
+  <identification><source>PDF pages 71</source><miscellaneous><miscellaneous-field name="x-metronome-id">w6-ex7</miscellaneous-field></miscellaneous></identification>
+  <part-list><score-part id="P1"><part-name>Rhythm reduction</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
+      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>40</per-minute></metronome></direction-type><sound tempo="40"/></direction>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><rest/><duration>24</duration></note>
+    </measure>
+    <measure number="2">
+      <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><rest/><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><rest/><duration>24</duration></note>
+    </measure>
+  </part>
+</score-partwise>
