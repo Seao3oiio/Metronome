@@ -1109,24 +1109,29 @@ export default function App() {
   const copyBars = () => {
     if (!activeBarIndexes.length) return;
     setBarClipboard(activeBarIndexes.map((index) => cloneBar(settingsRef.current.bars[index])));
-    setStatus(`${activeBarIndexes.length} 个小节已复制`);
+    setEditorBarIndex(activeBarIndexes.at(-1));
+    setSelectedBarIndexes([]);
+    setSelectingBars(false);
+    setStatus(`${activeBarIndexes.length} 个小节已复制，选择位置后粘贴`);
   };
 
   const pasteBars = () => {
     const current = settingsRef.current;
-    const pasted = barClipboard
-      .slice(0, MAX_BARS - current.bars.length)
-      .map(cloneBar);
-    if (!pasted.length) return;
+    if (!barClipboard.length) return;
+    if (current.bars.length + barClipboard.length > MAX_BARS) {
+      setStatus(`最多 ${MAX_BARS} 个小节，无法完整粘贴`);
+      return;
+    }
+    const pasted = barClipboard.map(cloneBar);
     if (playbackIntentRef.current) stop("节奏已更新");
     const insertAt = Math.min((activeBarIndexes.at(-1) ?? editorBarIndex) + 1, current.bars.length);
     const bars = [...current.bars];
     bars.splice(insertAt, 0, ...pasted);
-    const pastedIndexes = pasted.map((_, index) => insertAt + index);
-    setEditorBarIndex(insertAt);
-    setSelectedBarIndexes(pastedIndexes);
-    setSelectingBars(pasted.length > 1);
-    updateSettings({ bars, loopBar: current.loopBar === null ? null : insertAt });
+    const nextIndex = insertAt + pasted.length - 1;
+    setEditorBarIndex(nextIndex);
+    setSelectedBarIndexes([]);
+    setSelectingBars(false);
+    updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
     setStatus(`${pasted.length} 个小节已粘贴`);
   };
 
@@ -1846,7 +1851,7 @@ export default function App() {
                 className="matrix-icon-button"
                 type="button"
                 onClick={pasteBars}
-                disabled={!barClipboard.length || settings.bars.length === MAX_BARS}
+                disabled={!barClipboard.length}
                 aria-label="粘贴小节"
                 title="粘贴小节"
               >

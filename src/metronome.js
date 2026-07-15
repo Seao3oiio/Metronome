@@ -1,6 +1,6 @@
 export const BPM_MIN = 30;
 export const BPM_MAX = 240;
-export const MAX_BARS = 8;
+export const MAX_BARS = 16;
 export const MAX_BEATS = 6;
 export const MAX_SUBDIVISION = 12;
 export const BEAT_UNITS = [2, 4, 8, 16];
