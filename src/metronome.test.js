@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { FLAG_GLYPHS, REST_GLYPHS } from "./bravuraGlyphs.js";
 import {
   advanceMinuteDeadline,
   applyBeatPattern,
@@ -18,6 +19,11 @@ import {
   rhythmDefaultName,
   tempoName,
 } from "./metronome.js";
+
+test("notation glyphs cover every supported note value", () => {
+  assert.deepEqual(Object.keys(FLAG_GLYPHS), ["1", "2", "3", "4"]);
+  assert.deepEqual(Object.keys(REST_GLYPHS), ["2", "4", "8", "16", "32", "64"]);
+});
 
 test("tempo helpers keep practice input inside the supported range", () => {
   assert.equal(clampBpm(12), 30);

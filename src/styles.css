@@ -819,56 +819,30 @@ input[type="range"]::-moz-range-thumb {
   overflow: visible;
 }
 
-.note-head {
+.notation-fill {
   fill: currentColor;
-  stroke: currentColor;
-  stroke-width: 1.8;
-}
-
-.note-head.is-open {
-  fill: rgba(7, 9, 13, 0.9);
 }
 
 .note-stem,
-.note-flag,
 .note-beam,
-.tuplet-bracket,
-.notation-rest,
-.notation-rest path {
+.tuplet-bracket {
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.note-stem,
-.notation-rest,
-.notation-rest path {
-  stroke-width: 2.5;
-}
-
-.note-flag {
+.note-stem {
   stroke-width: 2.8;
 }
 
 .note-beam {
-  stroke-width: 5;
+  stroke-width: 3.25;
   stroke-linecap: butt;
 }
 
 .tuplet-bracket {
   stroke-width: 1.5;
-}
-
-.notation-rest rect {
-  fill: currentColor;
-}
-
-.music-glyph text {
-  fill: currentColor;
-  font-size: 11px;
-  font-weight: 800;
-  text-anchor: middle;
 }
 
 .advanced-rhythm-link {

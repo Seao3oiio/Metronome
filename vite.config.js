@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icon.svg", "apple-touch-icon.png"],
+      includeAssets: ["icon.svg", "apple-touch-icon.png", "Bravura-OFL.txt"],
       manifest: {
         name: "Pulse 练习节拍器",
         short_name: "Pulse",

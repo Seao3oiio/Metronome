@@ -43,6 +43,12 @@ import {
   rhythmDefaultName,
   tempoName,
 } from "./metronome.js";
+import {
+  FLAG_GLYPHS,
+  NOTEHEAD_GLYPHS,
+  REST_GLYPHS,
+  TUPLET_THREE_PATH,
+} from "./bravuraGlyphs.js";
 
 const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
 
@@ -185,51 +191,31 @@ function NoteSymbol({ x, denominator, standalone }) {
   const beams = Math.max(0, Math.log2(denominator) - 2);
   return (
     <g className="notation-note">
-      <ellipse
-        className={`note-head ${denominator === 2 ? "is-open" : ""}`}
-        cx={x}
-        cy="42"
-        rx="5.5"
-        ry="3.8"
-        transform={`rotate(-18 ${x} 42)`}
+      <path
+        className="notation-fill"
+        d={denominator === 2 ? NOTEHEAD_GLYPHS.half : NOTEHEAD_GLYPHS.black}
+        transform={`translate(${x - 8.1} 42) scale(.055 -.055)`}
       />
-      <path className="note-stem" d={`M${x + 4.5} 40V16`} />
-      {standalone &&
-        Array.from({ length: beams }, (_, index) => {
-          const y = 16 + index * 5;
-          return (
-            <path
-              className="note-flag"
-              d={`M${x + 4.5} ${y}C${x + 15} ${y + 2} ${x + 14} ${y + 10} ${x + 7} ${y + 13}`}
-              key={index}
-            />
-          );
-        })}
+      <path className="note-stem" d={`M${x + 7.7} 42V16`} />
+      {standalone && beams > 0 && (
+        <path
+          className="notation-fill"
+          d={FLAG_GLYPHS[beams]}
+          transform={`translate(${x + 7.7} 16) scale(.037 -.037)`}
+        />
+      )}
     </g>
   );
 }
 
 function RestSymbol({ x, denominator }) {
-  const beams = Math.max(0, Math.log2(denominator) - 2);
-  if (denominator === 2) {
-    return (
-      <g className="notation-rest">
-        <path d={`M${x - 10} 31H${x + 10}`} />
-        <rect x={x - 7} y="25" width="14" height="6" rx="1" />
-      </g>
-    );
-  }
-  if (denominator === 4) {
-    return <path className="notation-rest" d={`M${x + 3} 15l-7 10 7 6-7 11 7 4`} />;
-  }
+  const glyph = REST_GLYPHS[denominator];
   return (
-    <g className="notation-rest">
-      <path d={`M${x + 5} 15L${x - 4} 44`} />
-      {Array.from({ length: beams }, (_, index) => {
-        const y = 17 + index * 6;
-        return <path d={`M${x - 5} ${y}Q${x + 3} ${y - 1} ${x + 5} ${y + 6}`} key={index} />;
-      })}
-    </g>
+    <path
+      className="notation-fill"
+      d={glyph.path}
+      transform={`translate(${x - (glyph.width * glyph.scale) / 2} ${glyph.y}) scale(${glyph.scale} ${-glyph.scale})`}
+    />
   );
 }
 
@@ -255,7 +241,11 @@ function RhythmPatternGlyph({ steps, beatUnit }) {
       {steps.length === 3 && (
         <>
           <path className="tuplet-bracket" d="M8 12V7H39M57 7H88V12" />
-          <text x="48" y="11">3</text>
+          <path
+            className="notation-fill"
+            d={TUPLET_THREE_PATH}
+            transform="translate(43.9 12) scale(.027 -.027)"
+          />
         </>
       )}
       {steps.map((step, index) =>
@@ -275,7 +265,7 @@ function RhythmPatternGlyph({ steps, beatUnit }) {
           ? Array.from({ length: beams }, (_, beam) => (
               <path
                 className="note-beam"
-                d={`M${positions[run.start] + 4.5} ${16 + beam * 5}H${positions[run.end] + 4.5}`}
+                d={`M${positions[run.start] + 7.7} ${16 + beam * 6}H${positions[run.end] + 7.7}`}
                 key={`${runIndex}-${beam}`}
               />
             ))
@@ -883,13 +873,17 @@ export default function App() {
         if (playbackIntentRef.current) setStatus("继续播放原节奏");
       });
     } else {
-      Tone.getTransport().bpm.rampTo(settings.bpm, 0.04);
+      const bpm = Tone.getTransport().bpm;
+      if (Math.round(bpm.value) !== settings.bpm) bpm.value = settings.bpm;
     }
+  }, [settings]);
+
+  useEffect(() => {
     audioRef.current?.output?.gain.rampTo(
       settings.muted ? 0 : settings.volume / 100,
       0.03,
     );
-  }, [settings]);
+  }, [settings.muted, settings.volume]);
 
   useEffect(() => {
     const handleKey = (event) => {
