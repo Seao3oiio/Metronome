@@ -3,6 +3,7 @@ export const BPM_MAX = 240;
 export const MAX_BARS = 8;
 export const MAX_BEATS = 6;
 export const MAX_SUBDIVISION = 12;
+export const BEAT_UNITS = [2, 4, 8, 16];
 
 const TRACK_SOUNDS = {
   click: { accent: 1660, normal: 1080, duration: 0.025 },
@@ -59,6 +60,27 @@ export function makeBar(beats = 4, subdivision = 1) {
   };
 }
 
+export function applyBeatPattern(beats, pattern, count = beats.length) {
+  const cleanPattern = pattern.slice(0, MAX_SUBDIVISION).map((step) => (step ? 1 : 0));
+  return Array.from({ length: Math.min(MAX_BEATS, Math.max(1, count)) }, (_, index) => {
+    const previous = beats[index];
+    const steps = [...cleanPattern];
+    const accent = previous ? previous.steps.includes(2) : index === 0;
+    const firstSound = steps.findIndex(Boolean);
+    if (accent && firstSound >= 0) steps[firstSound] = 2;
+    return { enabled: previous?.enabled !== false, steps };
+  });
+}
+
+export function cycleBeatState(beat) {
+  const steps = beat.steps.map((step) => (step === 2 ? 1 : step));
+  if (!beat.enabled) return { enabled: true, steps };
+  if (beat.steps.includes(2)) return { enabled: false, steps };
+  const firstSound = steps.findIndex(Boolean);
+  if (firstSound >= 0) steps[firstSound] = 2;
+  return { enabled: true, steps };
+}
+
 export function normalizeBars(value) {
   if (!Array.isArray(value)) return null;
 
@@ -90,8 +112,8 @@ export function normalizeBars(value) {
   return bars.length ? bars : null;
 }
 
-export function encodeRhythm({ bpm, bars, loopBar }) {
-  return btoa(JSON.stringify({ v: 1, bpm, bars, loopBar }))
+export function encodeRhythm({ bpm, beatUnit = 4, bars, loopBar }) {
+  return btoa(JSON.stringify({ v: 2, bpm, beatUnit, bars, loopBar }))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
@@ -110,33 +132,36 @@ export function decodeRhythm(code) {
     payload.loopBar === null ||
     (Number.isInteger(payload.loopBar) && payload.loopBar >= 0 && payload.loopBar < bars?.length);
   if (
-    payload.v !== 1 ||
+    payload.v !== 2 ||
     clampBpm(payload.bpm) !== payload.bpm ||
+    !BEAT_UNITS.includes(payload.beatUnit) ||
     !bars ||
     JSON.stringify(bars) !== JSON.stringify(payload.bars) ||
     !validLoop
   ) {
     throw new Error("Invalid rhythm code");
   }
-  return { bpm: payload.bpm, bars, loopBar: payload.loopBar };
+  return { bpm: payload.bpm, beatUnit: payload.beatUnit, bars, loopBar: payload.loopBar };
 }
 
-export function rhythmDefaultName({ bpm, bars }) {
+export function rhythmDefaultName({ bpm, beatUnit = 4, bars }) {
   const bar = bars.length === 1 ? bars[0] : null;
   const subdivision =
     bar && bar.beats.every((beat) => beat.steps.length === bar.beats[0].steps.length)
       ? bar.beats[0].steps.length
       : null;
-  const subdivisionName = {
-    1: "四分",
-    2: "八分",
-    3: "三连",
-    4: "十六分",
-    5: "五连",
-    6: "六连",
-    8: "三十二分",
-  }[subdivision];
-  const shape = bar ? `${bar.beats.length}/4` : `${bars.length} 小节`;
+  const subdivisionName =
+    { 3: "三连", 5: "五连", 6: "六连" }[subdivision] ??
+    {
+      2: "二分",
+      4: "四分",
+      8: "八分",
+      16: "十六分",
+      32: "三十二分",
+      64: "六十四分",
+      128: "一百二十八分",
+    }[beatUnit * subdivision];
+  const shape = bar ? `${bar.beats.length}/${beatUnit}` : `${bars.length} 小节`;
   return `${shape} · ${subdivisionName ?? "自定义"} · ${bpm} BPM`;
 }
 

@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   advanceMinuteDeadline,
+  applyBeatPattern,
   bpmFromTaps,
   clampBpm,
   compileRhythm,
+  cycleBeatState,
   decodeRhythm,
   encodeRhythm,
   makeClickTrackWav,
@@ -41,6 +43,17 @@ test("rhythm data and tempo training stay predictable", () => {
   assert.equal(advanceMinuteDeadline(59.9, 60), null);
   assert.equal(advanceMinuteDeadline(60, 60), 120);
   assert.equal(advanceMinuteDeadline(185, 60), 240);
+
+  const accent = cycleBeatState({ enabled: true, steps: [0, 1] });
+  const muted = cycleBeatState(accent);
+  assert.deepEqual(accent, { enabled: true, steps: [0, 2] });
+  assert.deepEqual(muted, { enabled: false, steps: [0, 1] });
+  assert.deepEqual(cycleBeatState(muted), { enabled: true, steps: [0, 1] });
+  assert.deepEqual(applyBeatPattern([accent, muted], [1, 1, 1], 3), [
+    { enabled: true, steps: [2, 1, 1] },
+    { enabled: false, steps: [1, 1, 1] },
+    { enabled: true, steps: [1, 1, 1] },
+  ]);
 });
 
 test("mixed subdivisions return to exact beat and bar boundaries", () => {
@@ -65,16 +78,22 @@ test("mixed subdivisions return to exact beat and bar boundaries", () => {
 });
 
 test("rhythm codes round-trip and reject malformed data", () => {
-  const rhythm = { bpm: 108, bars: [makeBar(2, 3), makeBar(4, 1)], loopBar: 1 };
+  const rhythm = { bpm: 108, beatUnit: 8, bars: [makeBar(2, 3), makeBar(4, 1)], loopBar: 1 };
   assert.deepEqual(decodeRhythm(encodeRhythm(rhythm)), rhythm);
+  const oldCode = btoa(JSON.stringify({ v: 1, bpm: 96, bars: [makeBar(4, 1)], loopBar: null }));
+  assert.throws(() => decodeRhythm(oldCode));
   assert.throws(() => decodeRhythm("not-a-rhythm"));
 });
 
 test("new rhythms have a useful 4/4 default name", () => {
   assert.equal(rhythmDefaultName({ bpm: 96, bars: [makeBar(4, 1)] }), "4/4 · 四分 · 96 BPM");
   assert.equal(
-    rhythmDefaultName({ bpm: 120, bars: [makeBar(3, 2), makeBar(2, 3)] }),
+    rhythmDefaultName({ bpm: 120, beatUnit: 8, bars: [makeBar(3, 2), makeBar(2, 3)] }),
     "2 小节 · 自定义 · 120 BPM",
+  );
+  assert.equal(
+    rhythmDefaultName({ bpm: 80, beatUnit: 8, bars: [makeBar(6, 2)] }),
+    "6/8 · 十六分 · 80 BPM",
   );
 });
 

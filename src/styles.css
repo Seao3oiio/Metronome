@@ -60,13 +60,15 @@ body::before {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
 button,
 a,
-input {
+input,
+select {
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -76,7 +78,8 @@ button {
 
 button:focus-visible,
 a:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: 3px solid rgba(116, 228, 208, 0.76);
   outline-offset: 3px;
 }
@@ -689,85 +692,181 @@ input[type="range"]::-moz-range-thumb {
   font-size: 12px;
 }
 
-.quick-rhythm-selects {
+.quick-composer {
   display: grid;
-  grid-template-columns: 105px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.quick-group {
+  display: grid;
   gap: 8px;
 }
 
-.meter-picker,
-.subdivision-picker {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 7px;
+.quick-caption {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: center;
 }
 
-.meter-picker select {
-  width: 100%;
-  min-height: 52px;
-  padding: 0 12px;
+.meter-wheels {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: center;
+}
+
+.meter-wheels select {
+  width: 72px;
+  height: 58px;
+  padding: 0 8px;
+  appearance: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
   outline: 0;
   background: rgba(7, 9, 13, 0.42);
   color: var(--text);
-  font-size: 16px;
+  font-size: 24px;
+  font-weight: 800;
+  text-align: center;
+  text-align-last: center;
 }
 
-.meter-picker select:focus {
+.meter-wheels select:focus {
   border-color: rgba(116, 228, 208, 0.48);
 }
 
-.subdivision-picker > div {
+.meter-wheels > span {
+  color: var(--cyan);
+  font-size: 25px;
+  font-weight: 750;
+}
+
+.beat-state-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(44px, 1fr));
+  grid-template-columns: repeat(var(--quick-beats), minmax(44px, 1fr));
   gap: 5px;
 }
 
-.subdivision-picker button {
+.beat-state-grid button,
+.rhythm-preset-grid button {
   display: grid;
-  min-width: 44px;
-  min-height: 52px;
-  padding: 5px;
+  min-width: 0;
+  padding: 4px;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: rgba(7, 9, 13, 0.42);
-  color: var(--muted-strong);
+  color: var(--violet-bright);
   cursor: pointer;
   place-items: center;
 }
 
-.subdivision-picker button.is-selected {
+.beat-state-grid button {
+  min-width: 44px;
+  min-height: 58px;
+}
+
+.beat-state-grid button.is-accent {
+  border-color: rgba(255, 188, 103, 0.34);
+  background: rgba(255, 188, 103, 0.09);
+  color: var(--amber);
+}
+
+.beat-state-grid button.is-muted {
+  color: var(--muted);
+}
+
+.beat-state-grid button.is-playing {
+  border-color: rgba(116, 228, 208, 0.55);
+  box-shadow: 0 0 0 3px rgba(116, 228, 208, 0.11), 0 0 18px rgba(116, 228, 208, 0.25);
+}
+
+.beat-state-grid button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.beat-state-grid .is-muted .note-head {
+  fill: transparent;
+  stroke-dasharray: 2 2;
+}
+
+.beat-state-grid .is-muted .note-stem,
+.beat-state-grid .is-muted .note-flag {
+  stroke-dasharray: 3 3;
+}
+
+.rhythm-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.rhythm-preset-grid button {
+  min-height: 68px;
+}
+
+.rhythm-preset-grid button.is-selected {
   border-color: rgba(139, 123, 255, 0.34);
   background: rgba(139, 123, 255, 0.15);
   color: var(--violet-bright);
 }
 
-.subdivision-picker svg {
+.music-glyph {
   width: 100%;
-  max-width: 54px;
-  height: 34px;
+  max-width: 88px;
+  height: 50px;
   overflow: visible;
-  fill: currentColor;
 }
 
-.subdivision-picker svg path {
+.note-head {
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
+.note-head.is-open {
+  fill: rgba(7, 9, 13, 0.9);
+}
+
+.note-stem,
+.note-flag,
+.note-beam,
+.tuplet-bracket,
+.notation-rest,
+.notation-rest path {
   fill: none;
   stroke: currentColor;
-  stroke-linecap: square;
-  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.subdivision-picker svg .notation-beam {
-  stroke-width: 3;
+.note-stem,
+.notation-rest,
+.notation-rest path {
+  stroke-width: 2.5;
 }
 
-.subdivision-picker svg text {
+.note-flag {
+  stroke-width: 2.8;
+}
+
+.note-beam {
+  stroke-width: 5;
+  stroke-linecap: butt;
+}
+
+.tuplet-bracket {
+  stroke-width: 1.5;
+}
+
+.notation-rest rect {
   fill: currentColor;
-  font-size: 9px;
+}
+
+.music-glyph text {
+  fill: currentColor;
+  font-size: 11px;
   font-weight: 800;
   text-anchor: middle;
 }
@@ -1792,10 +1891,6 @@ footer {
     display: none;
   }
 
-  .quick-rhythm-selects {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .rhythm-library {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -1918,6 +2013,15 @@ footer {
 }
 
 @media (max-width: 380px) {
+  .beat-state-grid.has-many-beats {
+    grid-template-columns: repeat(var(--quick-beats), minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .beat-state-grid.has-many-beats button {
+    min-width: 0;
+  }
+
   .tempo-stage {
     width: 280px;
   }

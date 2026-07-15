@@ -20,15 +20,18 @@ import {
 } from "lucide-react";
 import * as Tone from "tone";
 import {
+  BEAT_UNITS,
   BPM_MAX,
   BPM_MIN,
   MAX_BARS,
   MAX_BEATS,
   MAX_SUBDIVISION,
   advanceMinuteDeadline,
+  applyBeatPattern,
   bpmFromTaps,
   clampBpm,
   compileRhythm,
+  cycleBeatState,
   decodeRhythm,
   encodeRhythm,
   makeClickTrackWav,
@@ -43,14 +46,15 @@ import {
 
 const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
 
-const RHYTHM_SUBDIVISIONS = [
-  { value: 1, label: "四分" },
-  { value: 2, label: "八分" },
-  { value: 3, label: "三连" },
-  { value: 4, label: "十六分" },
-  { value: 5, label: "五连" },
-  { value: 6, label: "六连" },
-  { value: 8, label: "三十二分" },
+const QUICK_PATTERNS = [
+  { id: "beat", label: "每拍一次", steps: [1] },
+  { id: "eighths", label: "每拍二等分", steps: [1, 1] },
+  { id: "offbeat", label: "仅后半拍", steps: [0, 1] },
+  { id: "triplet", label: "三连音", steps: [1, 1, 1] },
+  { id: "triplet-rest-first", label: "三连音第一格休止", steps: [0, 1, 1] },
+  { id: "triplet-rest-middle", label: "三连音第二格休止", steps: [1, 0, 1] },
+  { id: "triplet-rest-last", label: "三连音第三格休止", steps: [1, 1, 0] },
+  { id: "sixteenths", label: "每拍四等分", steps: [1, 1, 1, 1] },
 ];
 
 const GAP_DIFFICULTIES = [
@@ -76,6 +80,7 @@ const SOUND_NOTES = {
 const DEFAULT_SETTINGS = {
   schemaVersion: 2,
   bpm: 96,
+  beatUnit: 4,
   bars: null,
   loopBar: null,
   sound: "click",
@@ -101,46 +106,18 @@ function loadSettings() {
     const defaults = freshSettings();
     if (!saved) return defaults;
 
-    const legacyBeats = Number.isInteger(saved.beats)
-      ? Math.min(MAX_BEATS, Math.max(1, saved.beats))
-      : 4;
-    const legacySubdivision = Number.isInteger(saved.subdivision)
-      ? Math.min(MAX_SUBDIVISION, Math.max(1, saved.subdivision))
-      : 1;
-    const validLegacyPattern =
-      Array.isArray(saved.pattern) &&
-      saved.pattern.length === legacyBeats * legacySubdivision &&
-      saved.pattern.every((step) => [0, 1, 2].includes(step));
-    const legacyBar = makeBar(legacyBeats, legacySubdivision);
-    if (validLegacyPattern) {
-      legacyBar.beats = legacyBar.beats.map((beat, index) => ({
-        ...beat,
-        steps: saved.pattern.slice(
-          index * legacySubdivision,
-          (index + 1) * legacySubdivision,
-        ),
-      }));
-    } else if (saved.accent === false) {
-      legacyBar.beats[0].steps[0] = 1;
-    }
-    const bars = normalizeBars(saved.bars) ?? [legacyBar];
+    const bars = normalizeBars(saved.bars);
+    if (!bars) return defaults;
     const loopBar =
       Number.isInteger(saved.loopBar) && saved.loopBar >= 0 && saved.loopBar < bars.length
         ? saved.loopBar
         : null;
-    const {
-      beats: _legacyBeats,
-      subdivision: _legacySubdivision,
-      pattern: _legacyPattern,
-      accent: _legacyAccent,
-      ...savedSettings
-    } = saved;
 
     return {
       ...defaults,
-      ...savedSettings,
       schemaVersion: 2,
       bpm: clampBpm(saved.bpm ?? defaults.bpm),
+      beatUnit: BEAT_UNITS.includes(saved.beatUnit) ? saved.beatUnit : defaults.beatUnit,
       bars,
       loopBar,
       sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : "click",
@@ -200,40 +177,118 @@ function cloneBar(bar) {
   return { beats: bar.beats.map(cloneBeat) };
 }
 
-function SubdivisionGlyph({ value }) {
-  if (value === 1) {
+function plainSteps(beat) {
+  return beat.steps.map((step) => (step === 2 ? 1 : step));
+}
+
+function NoteSymbol({ x, denominator, standalone }) {
+  const beams = Math.max(0, Math.log2(denominator) - 2);
+  return (
+    <g className="notation-note">
+      <ellipse
+        className={`note-head ${denominator === 2 ? "is-open" : ""}`}
+        cx={x}
+        cy="42"
+        rx="5.5"
+        ry="3.8"
+        transform={`rotate(-18 ${x} 42)`}
+      />
+      <path className="note-stem" d={`M${x + 4.5} 40V16`} />
+      {standalone &&
+        Array.from({ length: beams }, (_, index) => {
+          const y = 16 + index * 5;
+          return (
+            <path
+              className="note-flag"
+              d={`M${x + 4.5} ${y}C${x + 15} ${y + 2} ${x + 14} ${y + 10} ${x + 7} ${y + 13}`}
+              key={index}
+            />
+          );
+        })}
+    </g>
+  );
+}
+
+function RestSymbol({ x, denominator }) {
+  const beams = Math.max(0, Math.log2(denominator) - 2);
+  if (denominator === 2) {
     return (
-      <svg viewBox="0 0 64 38" aria-hidden="true">
-        <ellipse cx="28" cy="29" rx="5" ry="3.5" transform="rotate(-18 28 29)" />
-        <path d="M32 28V7" />
-      </svg>
+      <g className="notation-rest">
+        <path d={`M${x - 10} 31H${x + 10}`} />
+        <rect x={x - 7} y="25" width="14" height="6" rx="1" />
+      </g>
     );
   }
-
-  const start = 6;
-  const end = 56;
-  const positions = Array.from(
-    { length: value },
-    (_, index) => start + (index * (end - start)) / (value - 1),
-  );
-  const beamCount = value >= 8 ? 3 : value >= 4 ? 2 : 1;
-  const tuplet = [3, 5, 6].includes(value);
+  if (denominator === 4) {
+    return <path className="notation-rest" d={`M${x + 3} 15l-7 10 7 6-7 11 7 4`} />;
+  }
   return (
-    <svg viewBox="0 0 64 38" aria-hidden="true">
-      {tuplet && <text x="32" y="8">{value}</text>}
-      {positions.map((x) => (
-        <g key={x}>
-          <ellipse cx={x} cy="31" rx="3.2" ry="2.3" transform={`rotate(-18 ${x} 31)`} />
-          <path d={`M${x + 2.7} 30V12`} />
-        </g>
-      ))}
-      {Array.from({ length: beamCount }, (_, index) => (
-        <path
-          key={index}
-          className="notation-beam"
-          d={`M${start + 2.5} ${12 + index * 4}H${end + 2.5}`}
-        />
-      ))}
+    <g className="notation-rest">
+      <path d={`M${x + 5} 15L${x - 4} 44`} />
+      {Array.from({ length: beams }, (_, index) => {
+        const y = 17 + index * 6;
+        return <path d={`M${x - 5} ${y}Q${x + 3} ${y - 1} ${x + 5} ${y + 6}`} key={index} />;
+      })}
+    </g>
+  );
+}
+
+function RhythmPatternGlyph({ steps, beatUnit }) {
+  const positions = {
+    1: [48],
+    2: [30, 66],
+    3: [22, 48, 74],
+    4: [18, 38, 58, 78],
+  }[steps.length];
+  const denominator = beatUnit * (steps.length === 1 ? 1 : steps.length === 4 ? 4 : 2);
+  const beams = Math.max(0, Math.log2(denominator) - 2);
+  const runs = [];
+  steps.forEach((step, index) => {
+    if (!step) return;
+    const previous = runs.at(-1);
+    if (previous?.end === index - 1) previous.end = index;
+    else runs.push({ start: index, end: index });
+  });
+
+  return (
+    <svg className="music-glyph" viewBox="0 0 96 54" aria-hidden="true" focusable="false">
+      {steps.length === 3 && (
+        <>
+          <path className="tuplet-bracket" d="M8 12V7H39M57 7H88V12" />
+          <text x="48" y="11">3</text>
+        </>
+      )}
+      {steps.map((step, index) =>
+        step ? (
+          <NoteSymbol
+            key={index}
+            x={positions[index]}
+            denominator={denominator}
+            standalone={runs.some((run) => run.start === index && run.end === index)}
+          />
+        ) : (
+          <RestSymbol key={index} x={positions[index]} denominator={denominator} />
+        ),
+      )}
+      {runs.flatMap((run, runIndex) =>
+        run.end > run.start
+          ? Array.from({ length: beams }, (_, beam) => (
+              <path
+                className="note-beam"
+                d={`M${positions[run.start] + 4.5} ${16 + beam * 5}H${positions[run.end] + 4.5}`}
+                key={`${runIndex}-${beam}`}
+              />
+            ))
+          : [],
+      )}
+    </svg>
+  );
+}
+
+function BeatStateGlyph({ beatUnit }) {
+  return (
+    <svg className="music-glyph" viewBox="0 0 96 54" aria-hidden="true" focusable="false">
+      <NoteSymbol x={48} denominator={beatUnit} standalone />
     </svg>
   );
 }
@@ -354,26 +409,94 @@ function mediaTrackKey(settings, gapPattern) {
   ]);
 }
 
+function releaseMedia(media, url) {
+  if (media) {
+    media.pause();
+    media.removeAttribute("src");
+  }
+  if (url) URL.revokeObjectURL(url);
+}
+
 async function syncMediaLoop(audio, settings) {
-  audio.media.volume = settings.muted ? 0 : settings.volume / 100;
+  audio.targetVolume = settings.muted ? 0 : settings.volume / 100;
+  audio.media.volume = audio.targetVolume;
   const key = mediaTrackKey(settings, audio.gapPattern);
   if (audio.mediaKey === key) return;
+  if (audio.pendingKey === key) return audio.pendingSync;
 
-  const plan = compileRhythm(settings.bars, settings.loopBar, 1, audio.gapPattern);
-  const url = URL.createObjectURL(
-    new Blob([makeClickTrackWav(settings, 12000, 1, audio.gapPattern)], {
-      type: "audio/wav",
-    }),
-  );
-  const previousUrl = audio.url;
-  audio.media.src = url;
-  audio.mediaKey = key;
-  audio.lastEvent = -1;
-  audio.lastTime = -1;
-  audio.plan = plan;
-  audio.url = url;
-  await audio.media.play();
-  if (previousUrl) URL.revokeObjectURL(previousUrl);
+  const revision = (audio.syncRevision ?? 0) + 1;
+  audio.syncRevision = revision;
+  releaseMedia(audio.pendingCandidate, audio.pendingUrl);
+  audio.pendingCandidate = null;
+  audio.pendingUrl = null;
+  const pending = (async () => {
+    const plan = compileRhythm(settings.bars, settings.loopBar, 1, audio.gapPattern);
+    const url = URL.createObjectURL(
+      new Blob([makeClickTrackWav(settings, 12000, 1, audio.gapPattern)], {
+        type: "audio/wav",
+      }),
+    );
+    const candidate = new Audio();
+    candidate.loop = true;
+    candidate.preload = "auto";
+    candidate.setAttribute("playsinline", "");
+    candidate.volume = 0;
+    candidate.src = url;
+    audio.pendingCandidate = candidate;
+    audio.pendingUrl = url;
+
+    try {
+      await candidate.play();
+    } catch (error) {
+      if (audio.pendingCandidate === candidate) {
+        audio.pendingCandidate = null;
+        audio.pendingUrl = null;
+      }
+      releaseMedia(candidate, url);
+      if (audio.syncRevision !== revision) return false;
+      throw error;
+    }
+
+    if (audio.syncRevision !== revision) {
+      releaseMedia(candidate, url);
+      return false;
+    }
+
+    const previousMedia = audio.media;
+    const previousUrl = audio.url;
+    try {
+      candidate.currentTime = 0;
+    } catch {
+      // A freshly started local WAV is already at its beginning.
+    }
+    candidate.volume = audio.targetVolume;
+    audio.media = candidate;
+    audio.mediaKey = key;
+    audio.lastEvent = -1;
+    audio.lastTime = -1;
+    audio.plan = plan;
+    audio.activeRhythm = {
+      bpm: settings.bpm,
+      bars: settings.bars,
+      loopBar: settings.loopBar,
+    };
+    audio.url = url;
+    audio.pendingCandidate = null;
+    audio.pendingUrl = null;
+    releaseMedia(previousMedia, previousUrl);
+    return true;
+  })();
+
+  audio.pendingKey = key;
+  audio.pendingSync = pending;
+  try {
+    return await pending;
+  } finally {
+    if (audio.pendingSync === pending) {
+      audio.pendingKey = null;
+      audio.pendingSync = null;
+    }
+  }
 }
 
 export default function App() {
@@ -406,7 +529,10 @@ export default function App() {
 
   const settingsRef = useRef(settings);
   const playingRef = useRef(false);
+  const playbackIntentRef = useRef(false);
   const startingRef = useRef(false);
+  const refreshingRef = useRef(false);
+  const rhythmRevisionRef = useRef(0);
   const barsRef = useRef(0);
   const minuteDeadlineRef = useRef(60);
   const tapsRef = useRef([]);
@@ -417,8 +543,14 @@ export default function App() {
   const isIOS = isIOSDevice();
 
   const updateSettings = useCallback((patch) => {
-    settingsRef.current = { ...settingsRef.current, ...patch };
+    const next = { ...settingsRef.current, ...patch };
+    settingsRef.current = next;
     setSettings((current) => ({ ...current, ...patch }));
+    if (audioRef.current?.media && playingRef.current) {
+      syncMediaLoop(audioRef.current, next).catch(() => {
+        if (playbackIntentRef.current) setStatus("继续播放原节奏");
+      });
+    }
   }, []);
 
   const setBpm = useCallback(
@@ -429,10 +561,10 @@ export default function App() {
   const disposeAudio = useCallback(() => {
     if (!audioRef.current) return;
     if (audioRef.current?.media) {
+      audioRef.current.syncRevision = (audioRef.current.syncRevision ?? 0) + 1;
       cancelAnimationFrame(audioRef.current.raf);
-      audioRef.current.media.pause();
-      audioRef.current.media.removeAttribute("src");
-      if (audioRef.current.url) URL.revokeObjectURL(audioRef.current.url);
+      releaseMedia(audioRef.current.pendingCandidate, audioRef.current.pendingUrl);
+      releaseMedia(audioRef.current.media, audioRef.current.url);
       audioRef.current = null;
       return;
     }
@@ -450,7 +582,9 @@ export default function App() {
   const stop = useCallback(
     (message = "已暂停") => {
       generationRef.current += 1;
+      playbackIntentRef.current = false;
       playingRef.current = false;
+      startingRef.current = false;
       setPlaying(false);
       setVisual({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false, gap: false });
       setStatus(message);
@@ -460,7 +594,7 @@ export default function App() {
     [disposeAudio],
   );
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (preserveTempo = false) => {
     if (startingRef.current || playingRef.current) return;
     startingRef.current = true;
     setStatus("开启声音…");
@@ -469,7 +603,7 @@ export default function App() {
 
     try {
       setAudioSession("playback");
-      if (settingsRef.current.trainer) {
+      if (settingsRef.current.trainer && !preserveTempo) {
         const bpm = settingsRef.current.startBpm;
         settingsRef.current = { ...settingsRef.current, bpm };
         setSettings((current) => ({ ...current, bpm }));
@@ -496,12 +630,23 @@ export default function App() {
           lastEvent: -1,
           lastTime: -1,
           plan: null,
+          activeRhythm: null,
+          pendingKey: null,
+          pendingSync: null,
+          pendingCandidate: null,
+          pendingUrl: null,
+          syncRevision: 0,
+          targetVolume: settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
           gapPattern,
           startedAt: performance.now() / 1000,
         };
         audioRef.current = mediaAudio;
         await syncMediaLoop(mediaAudio, settingsRef.current);
         if (run !== generationRef.current) return;
+        if (!mediaAudio.activeRhythm) {
+          await syncMediaLoop(mediaAudio, settingsRef.current);
+          if (run !== generationRef.current || !mediaAudio.activeRhythm) return;
+        }
         mediaAudio.startedAt = performance.now() / 1000;
 
         barsRef.current = 0;
@@ -513,16 +658,19 @@ export default function App() {
         const draw = () => {
           if (generationRef.current !== run || !playingRef.current) return;
           const current = settingsRef.current;
+          const activeRhythm = mediaAudio.activeRhythm;
+          const activeMedia = mediaAudio.media;
           const eventIndex = rhythmEventIndexAtTime(
-            media.currentTime,
-            current.bpm,
+            activeMedia.currentTime,
+            activeRhythm.bpm,
             mediaAudio.plan,
           );
-          const wrapped = mediaAudio.lastTime >= 0 && media.currentTime < mediaAudio.lastTime;
+          const wrapped =
+            mediaAudio.lastTime >= 0 && activeMedia.currentTime < mediaAudio.lastTime;
 
           if (eventIndex !== mediaAudio.lastEvent || wrapped) {
             const event = mediaAudio.plan.events[eventIndex];
-            const beatData = current.bars[event.bar]?.beats[event.beat];
+            const beatData = activeRhythm.bars[event.bar]?.beats[event.beat];
             const step = beatData?.steps[event.sub] ?? 0;
             const enteredBar =
               mediaAudio.lastEvent >= 0 && event.beat === 0 && event.sub === 0;
@@ -558,7 +706,7 @@ export default function App() {
             });
             mediaAudio.lastEvent = eventIndex;
           }
-          mediaAudio.lastTime = media.currentTime;
+          mediaAudio.lastTime = activeMedia.currentTime;
           mediaAudio.raf = requestAnimationFrame(draw);
         };
         mediaAudio.raf = requestAnimationFrame(draw);
@@ -651,18 +799,56 @@ export default function App() {
       playingRef.current = true;
       setPlaying(true);
       setStatus("运行中");
-      transport.start("+0.05");
+      transport.start(preserveTempo ? "+0.025" : "+0.05");
     } catch {
-      stop("请再次点击");
+      if (run === generationRef.current) stop("请再次点击");
     } finally {
-      startingRef.current = false;
+      if (run === generationRef.current) startingRef.current = false;
     }
   }, [disposeAudio, isIOS, stop]);
 
-  const togglePlayback = useCallback(() => {
-    if (playingRef.current) stop();
-    else start();
-  }, [start, stop]);
+  const refreshPlayback = useCallback(
+    async () => {
+      if (!playbackIntentRef.current || startingRef.current || refreshingRef.current) return;
+      refreshingRef.current = true;
+      try {
+        let revision;
+        do {
+          revision = rhythmRevisionRef.current;
+          if (isIOS) {
+            try {
+              if (audioRef.current?.media) {
+                await syncMediaLoop(audioRef.current, settingsRef.current);
+              }
+              if (playbackIntentRef.current) setStatus("运行中");
+            } catch {
+              if (playbackIntentRef.current) setStatus("继续播放原节奏");
+            }
+          } else {
+            playingRef.current = false;
+            disposeAudio();
+            await start(true);
+          }
+        } while (playbackIntentRef.current && revision !== rhythmRevisionRef.current);
+      } finally {
+        refreshingRef.current = false;
+      }
+    },
+    [disposeAudio, isIOS, start],
+  );
+
+  const togglePlayback = useCallback(async () => {
+    if (playbackIntentRef.current) {
+      stop();
+      return;
+    }
+    playbackIntentRef.current = true;
+    const revision = rhythmRevisionRef.current;
+    await start();
+    if (playbackIntentRef.current && revision !== rhythmRevisionRef.current) {
+      await refreshPlayback();
+    }
+  }, [refreshPlayback, start, stop]);
 
   const tapTempo = useCallback(() => {
     const now = performance.now();
@@ -693,7 +879,9 @@ export default function App() {
     }
 
     if (audioRef.current?.media) {
-      syncMediaLoop(audioRef.current, settings).catch(() => setStatus("点击恢复"));
+      syncMediaLoop(audioRef.current, settings).catch(() => {
+        if (playbackIntentRef.current) setStatus("继续播放原节奏");
+      });
     } else {
       Tone.getTransport().bpm.rampTo(settings.bpm, 0.04);
     }
@@ -747,6 +935,7 @@ export default function App() {
   useEffect(
     () => () => {
       generationRef.current += 1;
+      playbackIntentRef.current = false;
       playingRef.current = false;
       disposeAudio();
       setAudioSession("auto");
@@ -794,7 +983,7 @@ export default function App() {
   }, [showRhythmCode]);
 
   const updateBeat = (barIndex, beatIndex, updater, structural = false) => {
-    if (structural && playingRef.current) stop("节奏已更新");
+    if (structural && playbackIntentRef.current) stop("节奏已更新");
     const bars = settingsRef.current.bars.map((bar, currentBar) =>
       currentBar === barIndex
         ? {
@@ -843,7 +1032,7 @@ export default function App() {
     if ((amount < 0 && bar.beats.length === 1) || (amount > 0 && bar.beats.length === MAX_BEATS)) {
       return;
     }
-    if (playingRef.current) stop("节奏已更新");
+    if (playbackIntentRef.current) stop("节奏已更新");
     const beats =
       amount > 0
         ? [...bar.beats, cloneBeat(bar.beats.at(-1))]
@@ -856,7 +1045,7 @@ export default function App() {
   const duplicateBar = () => {
     const current = settingsRef.current;
     if (current.bars.length === MAX_BARS) return;
-    if (playingRef.current) stop("节奏已更新");
+    if (playbackIntentRef.current) stop("节奏已更新");
     const bars = [...current.bars];
     const nextIndex = editorBarIndex + 1;
     bars.splice(nextIndex, 0, cloneBar(bars[editorBarIndex]));
@@ -867,7 +1056,7 @@ export default function App() {
   const deleteBar = () => {
     const current = settingsRef.current;
     if (current.bars.length === 1) return;
-    if (playingRef.current) stop("节奏已更新");
+    if (playbackIntentRef.current) stop("节奏已更新");
     const bars = current.bars.filter((_, index) => index !== editorBarIndex);
     const nextIndex = Math.min(editorBarIndex, bars.length - 1);
     setEditorBarIndex(nextIndex);
@@ -877,29 +1066,54 @@ export default function App() {
   const selectBar = (index) => {
     const current = settingsRef.current;
     if (current.loopBar !== null && current.loopBar !== index) {
-      if (playingRef.current) stop("循环已更新");
+      if (playbackIntentRef.current) stop("循环已更新");
       updateSettings({ loopBar: index });
     }
     setEditorBarIndex(index);
   };
 
   const toggleBarLoop = () => {
-    if (playingRef.current) stop("循环已更新");
+    if (playbackIntentRef.current) stop("循环已更新");
     updateSettings({ loopBar: settingsRef.current.loopBar === null ? editorBarIndex : null });
   };
 
-  const changeUniformRhythm = ({ beats, subdivision }) => {
+  const applyQuickRhythm = (patch) => {
+    const resume = playbackIntentRef.current;
+    rhythmRevisionRef.current += 1;
+    updateSettings(patch);
+    if (!resume) return;
+    setStatus("切换节奏…");
+    void refreshPlayback();
+  };
+
+  const changeQuickMeter = (beats) => {
     const bar = settingsRef.current.bars[0];
-    const uniformSubdivision = bar.beats.every(
-      (beat) => beat.steps.length === bar.beats[0].steps.length,
-    )
-      ? bar.beats[0].steps.length
-      : 1;
-    if (playingRef.current) stop("节奏已更新");
+    const pattern = plainSteps(bar.beats[0]);
     setEditorBarIndex(0);
-    updateSettings({
-      bars: [makeBar(beats ?? bar.beats.length, subdivision ?? uniformSubdivision)],
+    applyQuickRhythm({
+      bars: [{ beats: applyBeatPattern(bar.beats, pattern, beats) }],
       loopBar: null,
+    });
+  };
+
+  const changeQuickPattern = (pattern) => {
+    const bar = settingsRef.current.bars[0];
+    setEditorBarIndex(0);
+    applyQuickRhythm({
+      bars: [{ beats: applyBeatPattern(bar.beats, pattern, bar.beats.length) }],
+      loopBar: null,
+    });
+  };
+
+  const cycleQuickBeat = (beatIndex) => {
+    if (settingsRef.current.bars.length !== 1) return;
+    const bar = settingsRef.current.bars[0];
+    applyQuickRhythm({
+      bars: [{
+        beats: bar.beats.map((beat, index) =>
+          index === beatIndex ? cycleBeatState(beat) : beat,
+        ),
+      }],
     });
   };
 
@@ -918,10 +1132,12 @@ export default function App() {
   const importRhythm = () => {
     try {
       const rhythm = decodeRhythm(rhythmCode);
-      if (playingRef.current) stop("节奏已导入");
+      if (playbackIntentRef.current) stop("节奏已导入");
       setEditorBarIndex(rhythm.loopBar ?? 0);
       setBpmDraft(String(rhythm.bpm));
-      updateSettings(rhythm);
+      setSelectedRhythmId("");
+      setRhythmName("");
+      updateSettings({ ...rhythm, startBpm: rhythm.bpm });
       setShowRhythmCode(false);
       setStatus("节奏已导入");
     } catch {
@@ -977,11 +1193,11 @@ export default function App() {
     if (!saved) return;
     try {
       const rhythm = decodeRhythm(saved.code);
-      if (playingRef.current) stop("节奏已切换");
+      if (playbackIntentRef.current) stop("节奏已切换");
       setEditorBarIndex(rhythm.loopBar ?? 0);
       setBpmDraft(String(rhythm.bpm));
       setRhythmName(saved.name);
-      updateSettings(rhythm);
+      updateSettings({ ...rhythm, startBpm: rhythm.bpm });
       setStatus("节奏已切换");
     } catch {
       setStatus("保存的节奏无效");
@@ -997,18 +1213,20 @@ export default function App() {
   };
 
   const changeGapClick = (patch) => {
-    if (playingRef.current) stop("随机空拍已更新");
+    if (playbackIntentRef.current) stop("随机空拍已更新");
     updateSettings(patch);
   };
 
   const editorBar = settings.bars[editorBarIndex] ?? settings.bars[0];
   const displayBar = settings.bars[playing ? visual.bar : editorBarIndex] ?? editorBar;
-  const uniformRhythm =
+  const quickBar = settings.bars[0];
+  const quickSteps = plainSteps(quickBar.beats[0]);
+  const simpleRhythm =
     settings.bars.length === 1 &&
-    editorBar.beats.every(
-      (beat) => beat.enabled && beat.steps.length === editorBar.beats[0].steps.length,
-    );
-  const quickSubdivision = uniformRhythm ? editorBar.beats[0].steps.length : "";
+    quickBar.beats.every((beat) => JSON.stringify(plainSteps(beat)) === JSON.stringify(quickSteps));
+  const quickPattern = simpleRhythm
+    ? QUICK_PATTERNS.find(({ steps }) => JSON.stringify(steps) === JSON.stringify(quickSteps))?.id
+    : "";
   const matrixHeight =
     Math.max(...editorBar.beats.map((beat) => beat.steps.length)) * 48 + 44;
 
@@ -1215,46 +1433,98 @@ export default function App() {
           </div>
 
           <div className="quick-rhythm" hidden={advancedRhythm}>
-            <div className="setting-block">
-              <div className="setting-label">
-                <span>快捷节奏</span>
+            <div className="setting-block quick-composer">
+              <div className="quick-group">
+                <span className="quick-caption">拍号</span>
+                <div className="meter-wheels" role="group" aria-label="拍号">
+                  <label>
+                    <span className="sr-only">每小节拍数</span>
+                    <select
+                      value={settings.bars.length === 1 ? quickBar.beats.length : ""}
+                      onChange={(event) => changeQuickMeter(Number(event.target.value))}
+                    >
+                      {settings.bars.length !== 1 && <option value="">—</option>}
+                      {Array.from({ length: MAX_BEATS }, (_, index) => index + 1).map((beats) => (
+                        <option key={beats} value={beats}>{beats}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <span aria-hidden="true">/</span>
+                  <label>
+                    <span className="sr-only">拍号音符</span>
+                    <select
+                      value={settings.beatUnit}
+                      onChange={(event) => updateSettings({ beatUnit: Number(event.target.value) })}
+                    >
+                      {BEAT_UNITS.map((unit) => (
+                        <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
-              <div className="quick-rhythm-selects">
-                <label className="meter-picker">
-                  <span>拍号</span>
-                  <select
-                    value={uniformRhythm ? editorBar.beats.length : ""}
-                    onChange={(event) => changeUniformRhythm({ beats: Number(event.target.value) })}
-                  >
-                    {!uniformRhythm && <option value="">自定义</option>}
-                    {[2, 3, 4, 5, 6].map((beats) => (
-                      <option key={beats} value={beats}>{beats}/4</option>
-                    ))}
-                  </select>
-                </label>
-                <div className="subdivision-picker">
-                  <span>拍内细分</span>
-                  <div role="group" aria-label="拍内细分">
-                    {RHYTHM_SUBDIVISIONS.map((option) => (
+
+              <div className="quick-group">
+                <span className="quick-caption">每拍</span>
+                <div
+                  className={`beat-state-grid ${quickBar.beats.length > 4 ? "has-many-beats" : ""}`}
+                  role="group"
+                  aria-label="每拍重音和静音"
+                  style={{ "--quick-beats": quickBar.beats.length }}
+                >
+                  {quickBar.beats.map((beat, index) => {
+                    const state = !beat.enabled
+                      ? "muted"
+                      : beat.steps.includes(2)
+                        ? "accent"
+                        : "normal";
+                    const stateLabel = { normal: "普通", accent: "重音", muted: "静音" }[state];
+                    return (
                       <button
-                        key={option.value}
+                        key={index}
+                        className={[
+                          `is-${state}`,
+                          playing && !visual.gap && visual.bar === 0 && visual.beat === index
+                            ? "is-playing"
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
                         type="button"
-                        className={quickSubdivision === option.value ? "is-selected" : ""}
-                        aria-label={option.label}
-                        aria-pressed={quickSubdivision === option.value}
-                        title={option.label}
-                        onClick={() => changeUniformRhythm({ subdivision: option.value })}
+                        onClick={() => cycleQuickBeat(index)}
+                        disabled={settings.bars.length !== 1}
+                        aria-label={`第 ${index + 1} 拍：${stateLabel}；点击切换`}
+                        title={stateLabel}
                       >
-                        <SubdivisionGlyph value={option.value} />
+                        <BeatStateGlyph beatUnit={settings.beatUnit} />
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="quick-group">
+                <span className="quick-caption">细分</span>
+                <div className="rhythm-preset-grid" role="group" aria-label="常用节奏型">
+                  {QUICK_PATTERNS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={quickPattern === option.id ? "is-selected" : ""}
+                      aria-label={option.label}
+                      aria-pressed={quickPattern === option.id}
+                      title={option.label}
+                      onClick={() => changeQuickPattern(option.steps)}
+                    >
+                      <RhythmPatternGlyph steps={option.steps} beatUnit={settings.beatUnit} />
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
 
             <a
-              className={`advanced-rhythm-link ${uniformRhythm ? "" : "is-active"}`}
+              className={`advanced-rhythm-link ${quickPattern ? "" : "is-active"}`}
               href="#rhythm"
             >
               <span>高级节奏</span>
