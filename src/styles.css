@@ -25,6 +25,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   min-width: 320px;
   min-height: 100%;
@@ -1039,7 +1043,7 @@ input[type="range"]::-moz-range-thumb {
 
 .bar-pages button {
   display: grid;
-  width: 34px;
+  width: 44px;
   height: 44px;
   flex: 0 0 auto;
   place-items: center;
