@@ -387,6 +387,12 @@ function isIOSDevice() {
   );
 }
 
+function makeActiveGapPattern(settings) {
+  if (!settings.gapClick || window.location.hash !== "#rhythm") return [];
+  const barCount = settings.loopBar === null ? settings.bars.length : 1;
+  return makeGapPattern(settings.gapDifficulty, barCount);
+}
+
 function mediaTrackKey(settings, gapPattern) {
   return JSON.stringify([
     settings.bpm,
@@ -526,6 +532,7 @@ export default function App() {
   const barsRef = useRef(0);
   const minuteDeadlineRef = useRef(60);
   const tapsRef = useRef([]);
+  const bpmEditingRef = useRef(false);
   const generationRef = useRef(0);
   const audioRef = useRef(null);
   const installDialogRef = useRef(null);
@@ -564,7 +571,6 @@ export default function App() {
     Tone.getDraw().cancel(0);
     audioRef.current?.part.dispose();
     Object.values(audioRef.current?.instruments ?? {}).forEach((instrument) => instrument.dispose());
-    audioRef.current?.gapGate?.dispose();
     audioRef.current?.output.dispose();
     audioRef.current = null;
   }, []);
@@ -599,12 +605,7 @@ export default function App() {
         setSettings((current) => ({ ...current, bpm }));
       }
 
-      const gapBarCount = settingsRef.current.loopBar === null
-        ? settingsRef.current.bars.length
-        : 1;
-      const gapPattern = settingsRef.current.gapClick
-        ? makeGapPattern(settingsRef.current.gapDifficulty, gapBarCount)
-        : [];
+      const gapPattern = makeActiveGapPattern(settingsRef.current);
 
       let mediaAudio = null;
       if (isIOS) {
@@ -710,13 +711,13 @@ export default function App() {
       const output = new Tone.Gain(
         settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
       ).toDestination();
-      const gapGate = new Tone.Gain(1).connect(output);
-      const instruments = createInstruments(gapGate);
+      const instruments = createInstruments(output);
 
       barsRef.current = 0;
       transport.position = 0;
       minuteDeadlineRef.current = 60;
-      transport.bpm.value = settingsRef.current.bpm;
+      transport.bpm.cancelScheduledValues(0);
+      transport.bpm.setValueAtTime(settingsRef.current.bpm, 0);
 
       const plan = compileRhythm(
         settingsRef.current.bars,
@@ -729,8 +730,9 @@ export default function App() {
         const beatData = current.bars[event.bar]?.beats[event.beat];
         const step = beatData?.steps[event.sub] ?? 0;
         const enteredBar = event.beat === 0 && event.sub === 0;
-        const eventGapMuted = Boolean(event.gap);
-        if (enteredBar) gapGate.gain.setValueAtTime(eventGapMuted ? 0 : 1, time);
+        const eventGapMuted = Boolean(
+          current.gapClick && window.location.hash === "#rhythm" && event.gap,
+        );
 
         const nextMinuteDeadline =
           current.trainer && current.changeMode === "minute"
@@ -785,7 +787,7 @@ export default function App() {
       part.loop = true;
       part.start(0);
 
-      audioRef.current = { part, instruments, gapGate, output };
+      audioRef.current = { part, instruments, output };
       playingRef.current = true;
       setPlaying(true);
       setStatus("运行中");
@@ -808,6 +810,7 @@ export default function App() {
           if (isIOS) {
             try {
               if (audioRef.current?.media) {
+                audioRef.current.gapPattern = makeActiveGapPattern(settingsRef.current);
                 await syncMediaLoop(audioRef.current, settingsRef.current);
               }
               if (playbackIntentRef.current) setStatus("运行中");
@@ -861,7 +864,7 @@ export default function App() {
 
   useEffect(() => {
     settingsRef.current = settings;
-    setBpmDraft(String(settings.bpm));
+    if (!bpmEditingRef.current) setBpmDraft(String(settings.bpm));
     try {
       localStorage.setItem("pulse-settings", JSON.stringify(settings));
     } catch {
@@ -898,9 +901,11 @@ export default function App() {
         tapTempo();
       } else if (["ArrowUp", "ArrowRight"].includes(event.key)) {
         event.preventDefault();
+        if (event.repeat) return;
         setBpm(settingsRef.current.bpm + (event.shiftKey ? 5 : 1));
       } else if (["ArrowDown", "ArrowLeft"].includes(event.key)) {
         event.preventDefault();
+        if (event.repeat) return;
         setBpm(settingsRef.current.bpm - (event.shiftKey ? 5 : 1));
       }
     };
@@ -938,10 +943,16 @@ export default function App() {
   );
 
   useEffect(() => {
-    const syncPage = () => setAdvancedRhythm(window.location.hash === "#rhythm");
+    const syncPage = () => {
+      setAdvancedRhythm(window.location.hash === "#rhythm");
+      if (playbackIntentRef.current && settingsRef.current.gapClick) {
+        rhythmRevisionRef.current += 1;
+        void refreshPlayback();
+      }
+    };
     window.addEventListener("hashchange", syncPage);
     return () => window.removeEventListener("hashchange", syncPage);
-  }, []);
+  }, [refreshPlayback]);
 
   useEffect(() => {
     const captureInstallPrompt = (event) => {
@@ -1207,12 +1218,17 @@ export default function App() {
   };
 
   const changeGapClick = (patch) => {
-    if (playbackIntentRef.current) stop("随机空拍已更新");
-    updateSettings(patch);
+    applyQuickRhythm(patch);
+  };
+
+  const commitSliderBpm = (event) => {
+    bpmEditingRef.current = false;
+    setBpm(event.currentTarget.value);
   };
 
   const editorBar = settings.bars[editorBarIndex] ?? settings.bars[0];
   const displayBar = settings.bars[playing ? visual.bar : editorBarIndex] ?? editorBar;
+  const previewBpm = clampBpm(bpmDraft || settings.bpm);
   const quickBar = settings.bars[0];
   const quickSteps = plainSteps(quickBar.beats[0]);
   const simpleRhythm =
@@ -1275,7 +1291,7 @@ export default function App() {
         >
           <div className="section-kicker">
             <span>BPM</span>
-            <span className="tempo-name">{tempoName(settings.bpm)}</span>
+            <span className="tempo-name">{tempoName(previewBpm)}</span>
           </div>
 
           <h1 id="tempo-heading" className="sr-only">
@@ -1351,11 +1367,24 @@ export default function App() {
               min={BPM_MIN}
               max={BPM_MAX}
               step="1"
-              value={settings.bpm}
-              onChange={(event) => setBpm(event.target.value)}
+              value={previewBpm}
+              onChange={(event) => {
+                setBpmDraft(event.currentTarget.value);
+                if (!bpmEditingRef.current) setBpm(event.currentTarget.value);
+              }}
+              onPointerDown={() => {
+                bpmEditingRef.current = true;
+              }}
+              onPointerUp={commitSliderBpm}
+              onPointerCancel={commitSliderBpm}
+              onKeyDown={() => {
+                bpmEditingRef.current = true;
+              }}
+              onKeyUp={commitSliderBpm}
+              onBlur={commitSliderBpm}
               aria-label="速度"
               style={{
-                "--range-progress": `${((settings.bpm - BPM_MIN) / (BPM_MAX - BPM_MIN)) * 100}%`,
+                "--range-progress": `${((previewBpm - BPM_MIN) / (BPM_MAX - BPM_MIN)) * 100}%`,
               }}
             />
             <button
