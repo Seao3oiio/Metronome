@@ -1998,6 +1998,7 @@ export default function App() {
                             key={sub}
                             className={[
                               `state-${step}`,
+                              sub === 0 ? "beat-title" : "",
                               playing &&
                               !visual.gap &&
                               visual.bar === barIndex &&
