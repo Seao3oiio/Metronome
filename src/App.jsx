@@ -57,6 +57,7 @@ import {
   REST_GLYPHS,
   TUPLET_THREE_PATH,
 } from "./bravuraGlyphs.js";
+import { clonePracticeRhythm, PRACTICE_PRESET_WEEKS } from "./practicePresets.js";
 
 const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
 
@@ -553,6 +554,13 @@ export default function App() {
   const [savedRhythms, setSavedRhythms] = useState(loadRhythmLibrary);
   const [selectedRhythmId, setSelectedRhythmId] = useState("");
   const [rhythmName, setRhythmName] = useState("");
+  const [presetWeekId, setPresetWeekId] = useState(PRACTICE_PRESET_WEEKS[0].id);
+  const [presetExerciseId, setPresetExerciseId] = useState(
+    PRACTICE_PRESET_WEEKS[0].exercises[0].id,
+  );
+  const [practicePresetId, setPracticePresetId] = useState(
+    PRACTICE_PRESET_WEEKS[0].exercises[0].presets[0].id,
+  );
   const [advancedRhythm, setAdvancedRhythm] = useState(
     () => window.location.hash === "#rhythm",
   );
@@ -1488,6 +1496,51 @@ export default function App() {
     }
   };
 
+  const presetWeek =
+    PRACTICE_PRESET_WEEKS.find(({ id }) => id === presetWeekId) ??
+    PRACTICE_PRESET_WEEKS[0];
+  const presetExercise =
+    presetWeek.exercises.find(({ id }) => id === presetExerciseId) ??
+    presetWeek.exercises[0];
+  const practicePreset =
+    presetExercise.presets.find(({ id }) => id === practicePresetId) ??
+    presetExercise.presets[0];
+
+  const changePresetWeek = (id) => {
+    const week = PRACTICE_PRESET_WEEKS.find((item) => item.id === id);
+    if (!week) return;
+    const exercise = week.exercises[0];
+    setPresetWeekId(id);
+    setPresetExerciseId(exercise.id);
+    setPracticePresetId(exercise.presets[0].id);
+  };
+
+  const changePresetExercise = (id) => {
+    const exercise = presetWeek.exercises.find((item) => item.id === id);
+    if (!exercise) return;
+    setPresetExerciseId(id);
+    setPracticePresetId(exercise.presets[0].id);
+  };
+
+  const applyPracticePreset = () => {
+    if (playbackIntentRef.current) stop("节奏已切换");
+    const next = clonePracticeRhythm(practicePreset);
+    const name = `${presetWeek.label} · ${presetExercise.label}${
+      presetExercise.presets.length > 1 ? ` · ${practicePreset.label}` : ""
+    }`;
+    setEditorBarIndex(0);
+    setSelectingBars(false);
+    setSelectedBarIndexes([]);
+    setBpmDraft(String(next.bpm));
+    setSelectedRhythmId("");
+    setRhythmName(name.slice(0, 40));
+    updateSettings({ ...next, startBpm: next.bpm });
+    const silent = next.bars.every((bar) =>
+      bar.beats.every((beat) => beat.steps.every((step) => step === 0)),
+    );
+    setStatus(silent ? "教材要求本练习不使用节拍器" : `已载入 ${practicePreset.label}`);
+  };
+
   const changeTrainer = (patch) => {
     barsRef.current = 0;
     minuteDeadlineRef.current = audioRef.current?.media
@@ -1900,6 +1953,48 @@ export default function App() {
               <span>高级节奏</span>
               <ChevronRight />
             </a>
+          </div>
+
+          <div className="practice-presets" hidden={!advancedRhythm}>
+            <div className="setting-label">
+              <span>教材预设</span>
+              <small>7 周 · 66 个练习</small>
+            </div>
+            <div className="practice-preset-path">
+              <select
+                value={presetWeek.id}
+                onChange={(event) => changePresetWeek(event.target.value)}
+                aria-label="选择教材周次"
+              >
+                {PRACTICE_PRESET_WEEKS.map((week) => (
+                  <option key={week.id} value={week.id}>{week.label}</option>
+                ))}
+              </select>
+              <select
+                value={presetExercise.id}
+                onChange={(event) => changePresetExercise(event.target.value)}
+                aria-label="选择教材练习"
+              >
+                {presetWeek.exercises.map((exercise) => (
+                  <option key={exercise.id} value={exercise.id}>{exercise.label}</option>
+                ))}
+              </select>
+              {presetExercise.presets.length > 1 && (
+                <select
+                  value={practicePreset.id}
+                  onChange={(event) => setPracticePresetId(event.target.value)}
+                  aria-label="选择练习谱例"
+                >
+                  {presetExercise.presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.label}</option>
+                  ))}
+                </select>
+              )}
+              <button type="button" onClick={applyPracticePreset}>
+                <ListChecks />
+                <span>载入</span>
+              </button>
+            </div>
           </div>
 
           <div className="rhythm-library" hidden={!advancedRhythm}>

@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { FLAG_GLYPHS, REST_GLYPHS } from "./bravuraGlyphs.js";
+import { clonePracticeRhythm, PRACTICE_PRESET_WEEKS } from "./practicePresets.js";
 import {
+  BEAT_UNITS,
   advanceMinuteDeadline,
   applyBeatPattern,
   bpmFromTaps,
@@ -27,6 +29,23 @@ import {
 test("notation glyphs cover every supported note value", () => {
   assert.deepEqual(Object.keys(FLAG_GLYPHS), ["1", "2", "3", "4"]);
   assert.deepEqual(Object.keys(REST_GLYPHS), ["2", "4", "8", "16", "32", "64"]);
+});
+
+test("the PDF practice library covers all 7 weeks and 66 exercises", () => {
+  const exercises = PRACTICE_PRESET_WEEKS.flatMap(({ exercises }) => exercises);
+  const presets = exercises.flatMap(({ presets }) => presets);
+
+  assert.equal(PRACTICE_PRESET_WEEKS.length, 7);
+  assert.equal(exercises.length, 66);
+  assert.equal(presets.length, 92);
+  assert.equal(new Set(exercises.map(({ id }) => id)).size, exercises.length);
+  assert.equal(new Set(presets.map(({ id }) => id)).size, presets.length);
+  presets.forEach((preset) => {
+    const rhythm = clonePracticeRhythm(preset);
+    assert.equal(clampBpm(rhythm.bpm), rhythm.bpm);
+    assert.ok(BEAT_UNITS.includes(rhythm.beatUnit));
+    assert.deepEqual(normalizeBars(rhythm.bars), rhythm.bars);
+  });
 });
 
 test("tempo helpers keep practice input inside the supported range", () => {
