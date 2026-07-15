@@ -13,6 +13,7 @@ import {
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
+  moveBarSelection,
   normalizeBars,
   nextTrainingBpm,
   rhythmEventIndexAtTime,
@@ -60,6 +61,17 @@ test("rhythm data and tempo training stay predictable", () => {
     { enabled: false, steps: [1, 1, 1] },
     { enabled: true, steps: [1, 1, 1] },
   ]);
+});
+
+test("selected bars move together without changing their order", () => {
+  assert.deepEqual(moveBarSelection(["a", "b", "c", "d"], [1, 3], -1), {
+    bars: ["b", "a", "d", "c"],
+    order: [1, 0, 3, 2],
+  });
+  assert.deepEqual(moveBarSelection(["a", "b", "c", "d"], [1, 2], 1), {
+    bars: ["a", "d", "b", "c"],
+    order: [0, 3, 1, 2],
+  });
 });
 
 test("mixed subdivisions return to exact beat and bar boundaries", () => {

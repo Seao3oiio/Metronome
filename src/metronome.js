@@ -81,6 +81,30 @@ export function cycleBeatState(beat) {
   return { enabled: true, steps };
 }
 
+export function moveBarSelection(bars, selectedIndexes, direction) {
+  const selected = new Set(selectedIndexes);
+  const entries = bars.map((bar, index) => ({ bar, index }));
+
+  if (direction < 0) {
+    for (let index = 1; index < entries.length; index += 1) {
+      if (selected.has(entries[index].index) && !selected.has(entries[index - 1].index)) {
+        [entries[index - 1], entries[index]] = [entries[index], entries[index - 1]];
+      }
+    }
+  } else {
+    for (let index = entries.length - 2; index >= 0; index -= 1) {
+      if (selected.has(entries[index].index) && !selected.has(entries[index + 1].index)) {
+        [entries[index], entries[index + 1]] = [entries[index + 1], entries[index]];
+      }
+    }
+  }
+
+  return {
+    bars: entries.map(({ bar }) => bar),
+    order: entries.map(({ index }) => index),
+  };
+}
+
 export function normalizeBars(value) {
   if (!Array.isArray(value)) return null;
 

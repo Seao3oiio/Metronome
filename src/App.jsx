@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowLeft,
+  ArrowRight,
   ChevronRight,
   ClipboardPaste,
   Copy,
   Download,
   Hand,
+  ListChecks,
   Minus,
   Pause,
   Play,
@@ -37,6 +39,7 @@ import {
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
+  moveBarSelection,
   normalizeBars,
   nextTrainingBpm,
   rhythmEventIndexAtTime,
@@ -509,6 +512,9 @@ export default function App() {
     gap: false,
   });
   const [editorBarIndex, setEditorBarIndex] = useState(() => settings.loopBar ?? 0);
+  const [selectingBars, setSelectingBars] = useState(false);
+  const [selectedBarIndexes, setSelectedBarIndexes] = useState([]);
+  const [barClipboard, setBarClipboard] = useState([]);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showRhythmCode, setShowRhythmCode] = useState(false);
@@ -1058,6 +1064,7 @@ export default function App() {
     const bars = [...current.bars];
     const nextIndex = editorBarIndex + 1;
     bars.splice(nextIndex, 0, cloneBar(bars[editorBarIndex]));
+    setSelectingBars(false);
     setEditorBarIndex(nextIndex);
     updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
   };
@@ -1068,17 +1075,78 @@ export default function App() {
     if (playbackIntentRef.current) stop("节奏已更新");
     const bars = current.bars.filter((_, index) => index !== editorBarIndex);
     const nextIndex = Math.min(editorBarIndex, bars.length - 1);
+    setSelectingBars(false);
     setEditorBarIndex(nextIndex);
     updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
   };
 
   const selectBar = (index) => {
+    if (selectingBars) {
+      setEditorBarIndex(index);
+      setSelectedBarIndexes((selected) =>
+        selected.includes(index)
+          ? selected.filter((selectedIndex) => selectedIndex !== index)
+          : [...selected, index].sort((left, right) => left - right),
+      );
+      return;
+    }
     const current = settingsRef.current;
     if (current.loopBar !== null && current.loopBar !== index) {
       if (playbackIntentRef.current) stop("循环已更新");
       updateSettings({ loopBar: index });
     }
     setEditorBarIndex(index);
+  };
+
+  const toggleBarSelection = () => {
+    const next = !selectingBars;
+    if (next && playbackIntentRef.current) stop("选择小节");
+    setSelectedBarIndexes(next ? [editorBarIndex] : []);
+    setSelectingBars(next);
+    setStatus(next ? "点选要操作的小节" : "就绪");
+  };
+
+  const copyBars = () => {
+    if (!activeBarIndexes.length) return;
+    setBarClipboard(activeBarIndexes.map((index) => cloneBar(settingsRef.current.bars[index])));
+    setStatus(`${activeBarIndexes.length} 个小节已复制`);
+  };
+
+  const pasteBars = () => {
+    const current = settingsRef.current;
+    const pasted = barClipboard
+      .slice(0, MAX_BARS - current.bars.length)
+      .map(cloneBar);
+    if (!pasted.length) return;
+    if (playbackIntentRef.current) stop("节奏已更新");
+    const insertAt = Math.min((activeBarIndexes.at(-1) ?? editorBarIndex) + 1, current.bars.length);
+    const bars = [...current.bars];
+    bars.splice(insertAt, 0, ...pasted);
+    const pastedIndexes = pasted.map((_, index) => insertAt + index);
+    setEditorBarIndex(insertAt);
+    setSelectedBarIndexes(pastedIndexes);
+    setSelectingBars(pasted.length > 1);
+    updateSettings({ bars, loopBar: current.loopBar === null ? null : insertAt });
+    setStatus(`${pasted.length} 个小节已粘贴`);
+  };
+
+  const moveSelectedBars = (direction) => {
+    if (!activeBarIndexes.length) return;
+    const current = settingsRef.current;
+    const moved = moveBarSelection(current.bars, activeBarIndexes, direction);
+    if (moved.order.every((originalIndex, index) => originalIndex === index)) return;
+    if (playbackIntentRef.current) stop("节奏已排序");
+    const nextEditorIndex = moved.order.indexOf(editorBarIndex);
+    setEditorBarIndex(nextEditorIndex);
+    setSelectedBarIndexes(
+      activeBarIndexes.map((index) => moved.order.indexOf(index)).sort((left, right) => left - right),
+    );
+    updateSettings({
+      bars: moved.bars,
+      loopBar:
+        current.loopBar === null ? null : moved.order.indexOf(current.loopBar),
+    });
+    setStatus("小节已排序");
   };
 
   const toggleBarLoop = () => {
@@ -1231,6 +1299,18 @@ export default function App() {
   };
 
   const editorBar = settings.bars[editorBarIndex] ?? settings.bars[0];
+  const activeBarIndexes = [
+    ...new Set(selectingBars ? selectedBarIndexes : [editorBarIndex]),
+  ]
+    .filter((index) => index >= 0 && index < settings.bars.length)
+    .sort((left, right) => left - right);
+  const activeBarIndexSet = new Set(activeBarIndexes);
+  const canMoveBarsLeft = activeBarIndexes.some(
+    (index) => index > 0 && !activeBarIndexSet.has(index - 1),
+  );
+  const canMoveBarsRight = activeBarIndexes.some(
+    (index) => index < settings.bars.length - 1 && !activeBarIndexSet.has(index + 1),
+  );
   const displayBar = settings.bars[playing ? visual.bar : editorBarIndex] ?? editorBar;
   const previewBpm = clampBpm(bpmDraft || settings.bpm);
   const quickBar = settings.bars[0];
@@ -1671,20 +1751,28 @@ export default function App() {
               >
                 <Repeat2 />
               </button>
-              <div className="bar-pages" role="tablist" aria-label="小节">
+              <div
+                className="bar-pages"
+                role="tablist"
+                aria-label="小节"
+                aria-multiselectable={selectingBars || undefined}
+              >
                 {settings.bars.map((_, index) => (
                   <button
                     key={index}
                     type="button"
                     className={[
                       index === editorBarIndex ? "is-current" : "",
+                      selectingBars && selectedBarIndexes.includes(index) ? "is-selected" : "",
                       playing && !visual.gap && index === visual.bar ? "is-playing" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
                     onClick={() => selectBar(index)}
                     role="tab"
-                    aria-selected={index === editorBarIndex}
+                    aria-selected={
+                      selectingBars ? selectedBarIndexes.includes(index) : index === editorBarIndex
+                    }
                     aria-label={`第 ${index + 1} 小节`}
                   >
                     <i aria-hidden="true" />
@@ -1710,6 +1798,59 @@ export default function App() {
                 title="复制当前小节"
               >
                 <Plus />
+              </button>
+            </div>
+
+            <div className="bar-actions" role="group" aria-label="小节编辑">
+              <button
+                className={`matrix-icon-button ${selectingBars ? "is-active" : ""}`}
+                type="button"
+                onClick={toggleBarSelection}
+                aria-label={selectingBars ? "退出多选" : "多选小节"}
+                aria-pressed={selectingBars}
+                title={selectingBars ? "退出多选" : "多选小节"}
+              >
+                <ListChecks />
+              </button>
+              <button
+                className="matrix-icon-button"
+                type="button"
+                onClick={() => moveSelectedBars(-1)}
+                disabled={!canMoveBarsLeft}
+                aria-label="所选小节左移"
+                title="所选小节左移"
+              >
+                <ArrowLeft />
+              </button>
+              <button
+                className="matrix-icon-button"
+                type="button"
+                onClick={() => moveSelectedBars(1)}
+                disabled={!canMoveBarsRight}
+                aria-label="所选小节右移"
+                title="所选小节右移"
+              >
+                <ArrowRight />
+              </button>
+              <button
+                className="matrix-icon-button"
+                type="button"
+                onClick={copyBars}
+                disabled={!activeBarIndexes.length}
+                aria-label="复制所选小节"
+                title="复制所选小节"
+              >
+                <Copy />
+              </button>
+              <button
+                className="matrix-icon-button"
+                type="button"
+                onClick={pasteBars}
+                disabled={!barClipboard.length || settings.bars.length === MAX_BARS}
+                aria-label="粘贴小节"
+                title="粘贴小节"
+              >
+                <ClipboardPaste />
               </button>
             </div>
 
@@ -1823,6 +1964,57 @@ export default function App() {
                   <Plus />
                 </button>
               </div>
+            </div>
+
+            <div className="bar-overview" aria-label="全部小节预览">
+              {settings.bars.map((bar, barIndex) => (
+                <button
+                  key={barIndex}
+                  className={[
+                    "bar-preview",
+                    barIndex === editorBarIndex ? "is-current" : "",
+                    selectingBars && selectedBarIndexes.includes(barIndex) ? "is-selected" : "",
+                    playing && !visual.gap && visual.bar === barIndex ? "is-playing" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  type="button"
+                  onClick={() => selectBar(barIndex)}
+                  aria-label={`第 ${barIndex + 1} 小节预览`}
+                >
+                  <span
+                    className="bar-preview-beats"
+                    style={{ "--preview-beats": bar.beats.length }}
+                    aria-hidden="true"
+                  >
+                    {bar.beats.map((beat, beatIndex) => (
+                      <span
+                        key={beatIndex}
+                        className={`bar-preview-beat ${beat.enabled ? "" : "is-disabled"}`}
+                        style={{ "--preview-steps": beat.steps.length }}
+                      >
+                        {beat.steps.map((step, sub) => (
+                          <i
+                            key={sub}
+                            className={[
+                              `state-${step}`,
+                              playing &&
+                              !visual.gap &&
+                              visual.bar === barIndex &&
+                              visual.beat === beatIndex &&
+                              visual.sub === sub
+                                ? "is-playing"
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                          />
+                        ))}
+                      </span>
+                    ))}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
 
