@@ -154,6 +154,37 @@ export function normalizeLoopRange(value, barCount) {
   return start >= 0 && end < barCount ? [start, end] : null;
 }
 
+export function removeBarSelection(bars, selectedIndexes, loopBar) {
+  const selected = [...new Set(selectedIndexes)]
+    .filter((index) => Number.isInteger(index) && index >= 0 && index < bars.length)
+    .sort((left, right) => left - right);
+  if (!selected.length) return null;
+  if (selected.length === bars.length) {
+    return { bars: [makeBar(4, 1)], loopBar: null, index: 0 };
+  }
+
+  let range = normalizeLoopRange(loopBar, bars.length);
+  let remaining = bars.length;
+  for (const index of [...selected].reverse()) {
+    remaining -= 1;
+    if (!range) continue;
+    const [start, end] = range;
+    if (index < start) range = [start - 1, end - 1];
+    else if (index <= end) {
+      const next = Math.min(index, remaining - 1);
+      range = start < end ? [start, end - 1] : [next, next];
+    }
+  }
+
+  const selectedSet = new Set(selected);
+  const nextBars = bars.filter((_, index) => !selectedSet.has(index));
+  return {
+    bars: nextBars,
+    loopBar: range,
+    index: Math.min(selected[0], nextBars.length - 1),
+  };
+}
+
 export function encodeRhythm({ bpm, beatUnit = 4, bars, loopBar }) {
   return btoa(JSON.stringify({ v: 3, bpm, beatUnit, bars, loopBar }))
     .replaceAll("+", "-")

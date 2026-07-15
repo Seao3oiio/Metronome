@@ -14,8 +14,11 @@ import {
   Play,
   Plus,
   Repeat2,
+  Redo2,
   Save,
   Share2,
+  Trash2,
+  Undo2,
   Volume2,
   VolumeX,
   X,
@@ -42,6 +45,7 @@ import {
   normalizeBars,
   normalizeLoopRange,
   nextTrainingBpm,
+  removeBarSelection,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   tempoName,
@@ -102,6 +106,7 @@ const DEFAULT_SETTINGS = {
   changeAmount: 2,
   gapClick: false,
   gapDifficulty: "medium",
+  countIn: false,
   volume: 72,
   muted: false,
 };
@@ -140,6 +145,7 @@ function loadSettings() {
         : defaults.volume,
       trainer: Boolean(saved.trainer),
       gapClick: Boolean(saved.gapClick),
+      countIn: Boolean(saved.countIn),
       gapDifficulty: GAP_DIFFICULTIES.some(({ value }) => value === saved.gapDifficulty)
         ? saved.gapDifficulty
         : defaults.gapDifficulty,
@@ -194,16 +200,6 @@ function insertLoopRange(range, index, count) {
   if (index <= start) return [start + count, end + count];
   if (index <= end + 1) return [start, end + count];
   return range;
-}
-
-function deleteLoopIndex(range, index, remaining) {
-  if (!range) return null;
-  const [start, end] = range;
-  if (index < start) return [start - 1, end - 1];
-  if (index > end) return range;
-  if (start < end) return [start, end - 1];
-  const next = Math.min(index, remaining - 1);
-  return [next, next];
 }
 
 function remapLoopRange(range, order) {
@@ -451,7 +447,7 @@ function releaseMedia(media, url) {
 
 async function syncMediaLoop(audio, settings) {
   audio.targetVolume = settings.muted ? 0 : settings.volume / 100;
-  audio.media.volume = audio.targetVolume;
+  audio.media.volume = audio.countingIn ? 0 : audio.targetVolume;
   const key = mediaTrackKey(settings, audio.gapPattern);
   if (audio.mediaKey === key) return;
   if (audio.pendingKey === key) return audio.pendingSync;
@@ -501,7 +497,7 @@ async function syncMediaLoop(audio, settings) {
     } catch {
       // A freshly started local WAV is already at its beginning.
     }
-    candidate.volume = audio.targetVolume;
+    candidate.volume = audio.countingIn ? 0 : audio.targetVolume;
     audio.media = candidate;
     audio.mediaKey = key;
     audio.lastEvent = -1;
@@ -549,6 +545,7 @@ export default function App() {
   const [selectedBarIndexes, setSelectedBarIndexes] = useState([]);
   const [barClipboard, setBarClipboard] = useState([]);
   const [toast, setToast] = useState(null);
+  const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showRhythmCode, setShowRhythmCode] = useState(false);
@@ -569,6 +566,7 @@ export default function App() {
   const startingRef = useRef(false);
   const refreshingRef = useRef(false);
   const rhythmRevisionRef = useRef(0);
+  const historyRef = useRef({ undo: [], redo: [] });
   const barsRef = useRef(0);
   const minuteDeadlineRef = useRef(60);
   const tapsRef = useRef([]);
@@ -579,8 +577,25 @@ export default function App() {
   const rhythmDialogRef = useRef(null);
   const isIOS = isIOSDevice();
 
-  const updateSettings = useCallback((patch) => {
-    const next = { ...settingsRef.current, ...patch };
+  const updateSettings = useCallback((patch, recordHistory = true) => {
+    const current = settingsRef.current;
+    const rhythmChanged =
+      ("bars" in patch && patch.bars !== current.bars) ||
+      ("loopBar" in patch && patch.loopBar !== current.loopBar) ||
+      ("beatUnit" in patch && patch.beatUnit !== current.beatUnit);
+    if (recordHistory && rhythmChanged) {
+      const history = historyRef.current;
+      history.undo.push({
+        bars: current.bars,
+        loopBar: current.loopBar,
+        beatUnit: current.beatUnit,
+      });
+      if (history.undo.length > 50) history.undo.shift();
+      history.redo = [];
+      setHistoryDepth({ undo: history.undo.length, redo: 0 });
+    }
+
+    const next = { ...current, ...patch };
     settingsRef.current = next;
     setSettings((current) => ({ ...current, ...patch }));
     if (audioRef.current?.media && playingRef.current) {
@@ -600,6 +615,8 @@ export default function App() {
     if (audioRef.current?.media) {
       audioRef.current.syncRevision = (audioRef.current.syncRevision ?? 0) + 1;
       cancelAnimationFrame(audioRef.current.raf);
+      audioRef.current.countInResolve?.();
+      releaseMedia(audioRef.current.countInMedia, audioRef.current.countInUrl);
       releaseMedia(audioRef.current.pendingCandidate, audioRef.current.pendingUrl);
       releaseMedia(audioRef.current.media, audioRef.current.url);
       audioRef.current = null;
@@ -610,6 +627,7 @@ export default function App() {
     transport.cancel(0);
     Tone.getDraw().cancel(0);
     audioRef.current?.part.dispose();
+    audioRef.current?.countInPart?.dispose();
     Object.values(audioRef.current?.instruments ?? {}).forEach((instrument) => instrument.dispose());
     audioRef.current?.output.dispose();
     audioRef.current = null;
@@ -630,6 +648,23 @@ export default function App() {
     [disposeAudio],
   );
 
+  const travelHistory = (direction) => {
+    const history = historyRef.current;
+    const source = direction === "undo" ? history.undo : history.redo;
+    const target = direction === "undo" ? history.redo : history.undo;
+    const snapshot = source.pop();
+    if (!snapshot) return;
+    const current = settingsRef.current;
+    target.push({ bars: current.bars, loopBar: current.loopBar, beatUnit: current.beatUnit });
+    if (playbackIntentRef.current) stop(direction === "undo" ? "已撤销" : "已重做");
+    updateSettings(snapshot, false);
+    setEditorBarIndex((index) => Math.min(index, snapshot.bars.length - 1));
+    setSelectedBarIndexes([]);
+    setSelectingBars(false);
+    setHistoryDepth({ undo: history.undo.length, redo: history.redo.length });
+    setStatus(direction === "undo" ? "已撤销" : "已重做");
+  };
+
   const start = useCallback(async (preserveTempo = false) => {
     if (startingRef.current || playingRef.current) return;
     startingRef.current = true;
@@ -649,6 +684,7 @@ export default function App() {
 
       let mediaAudio = null;
       if (isIOS) {
+        const countingIn = settingsRef.current.countIn && !preserveTempo;
         const media = new Audio();
         media.loop = true;
         media.preload = "auto";
@@ -667,16 +703,65 @@ export default function App() {
           pendingCandidate: null,
           pendingUrl: null,
           syncRevision: 0,
+          countingIn,
+          countInMedia: null,
+          countInUrl: null,
+          countInResolve: null,
           targetVolume: settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
           gapPattern,
           startedAt: performance.now() / 1000,
         };
         audioRef.current = mediaAudio;
+        let countInDone = null;
+        let countInStarted = null;
+        if (countingIn) {
+          const range = normalizeLoopRange(
+            settingsRef.current.loopBar,
+            settingsRef.current.bars.length,
+          );
+          const bar = settingsRef.current.bars[range?.[0] ?? 0];
+          const countInUrl = URL.createObjectURL(
+            new Blob([
+              makeClickTrackWav({
+                ...settingsRef.current,
+                bars: [makeBar(bar.beats.length, 1)],
+                loopBar: null,
+              }),
+            ], { type: "audio/wav" }),
+          );
+          const countInMedia = new Audio(countInUrl);
+          countInMedia.preload = "auto";
+          countInMedia.setAttribute("playsinline", "");
+          countInMedia.volume = mediaAudio.targetVolume;
+          mediaAudio.countInMedia = countInMedia;
+          mediaAudio.countInUrl = countInUrl;
+          countInDone = new Promise((resolve, reject) => {
+            mediaAudio.countInResolve = resolve;
+            countInMedia.addEventListener("ended", resolve, { once: true });
+            countInMedia.addEventListener("error", reject, { once: true });
+          });
+          countInStarted = countInMedia.play();
+          playingRef.current = true;
+          setPlaying(true);
+          setStatus("预备 1 小节");
+        }
         await syncMediaLoop(mediaAudio, settingsRef.current);
         if (run !== generationRef.current) return;
         if (!mediaAudio.activeRhythm) {
           await syncMediaLoop(mediaAudio, settingsRef.current);
           if (run !== generationRef.current || !mediaAudio.activeRhythm) return;
+        }
+        if (countingIn) {
+          await countInStarted;
+          await countInDone;
+          if (run !== generationRef.current) return;
+          releaseMedia(mediaAudio.countInMedia, mediaAudio.countInUrl);
+          mediaAudio.countInMedia = null;
+          mediaAudio.countInUrl = null;
+          mediaAudio.countInResolve = null;
+          mediaAudio.countingIn = false;
+          mediaAudio.media.currentTime = 0;
+          mediaAudio.media.volume = mediaAudio.targetVolume;
         }
         mediaAudio.startedAt = performance.now() / 1000;
 
@@ -765,6 +850,44 @@ export default function App() {
         transport.PPQ,
         gapPattern,
       );
+      const loopRange = normalizeLoopRange(
+        settingsRef.current.loopBar,
+        settingsRef.current.bars.length,
+      );
+      const countInBarIndex = loopRange?.[0] ?? 0;
+      const countInBeats = settingsRef.current.countIn && !preserveTempo
+        ? settingsRef.current.bars[countInBarIndex].beats.length
+        : 0;
+      const countInTicks = countInBeats * transport.PPQ;
+      const countInPart = countInBeats
+        ? new Tone.Part(
+            (time, { beat }) => {
+              const current = settingsRef.current;
+              const note = SOUND_NOTES[current.sound];
+              instruments[current.sound].triggerAttackRelease(
+                beat === 0 ? note.accent : note.normal,
+                note.duration,
+                time,
+                beat === 0 ? 1 : 0.74,
+              );
+              Tone.getDraw().schedule(() => {
+                if (generationRef.current !== run || !playingRef.current) return;
+                setVisual({
+                  bar: countInBarIndex,
+                  beat,
+                  sub: 0,
+                  pulse: performance.now(),
+                  hit: true,
+                  gap: false,
+                });
+              }, time);
+            },
+            Array.from({ length: countInBeats }, (_, beat) => [
+              Tone.Ticks(beat * transport.PPQ),
+              { beat },
+            ]),
+          ).start(0)
+        : null;
       const part = new Tone.Part((time, event) => {
         let current = settingsRef.current;
         const beatData = current.bars[event.bar]?.beats[event.beat];
@@ -825,12 +948,20 @@ export default function App() {
       }, plan.events.map((event) => [Tone.Ticks(event.ticks), event]));
       part.loopEnd = Tone.Ticks(plan.totalTicks);
       part.loop = true;
-      part.start(0);
+      part.start(Tone.Ticks(countInTicks));
 
-      audioRef.current = { part, instruments, output };
+      if (countInTicks) {
+        transport.scheduleOnce((time) => {
+          Tone.getDraw().schedule(() => {
+            if (generationRef.current === run) setStatus("运行中");
+          }, time);
+        }, Tone.Ticks(countInTicks));
+      }
+
+      audioRef.current = { part, countInPart, instruments, output };
       playingRef.current = true;
       setPlaying(true);
-      setStatus("运行中");
+      setStatus(countInTicks ? "预备 1 小节" : "运行中");
       transport.start(preserveTempo ? "+0.025" : "+0.05");
     } catch {
       if (run === generationRef.current) stop("请再次点击");
@@ -1100,18 +1231,17 @@ export default function App() {
     updateSettings({ bars, loopBar: insertLoopRange(current.loopBar, nextIndex, 1) });
   };
 
-  const deleteBar = () => {
+  const deleteBars = (indexes) => {
     const current = settingsRef.current;
-    if (current.bars.length === 1) return;
+    const result = removeBarSelection(current.bars, indexes, current.loopBar);
+    if (!result) return;
+    if (indexes.length > 1 && !window.confirm(`删除选中的 ${indexes.length} 个小节？`)) return;
     if (playbackIntentRef.current) stop("节奏已更新");
-    const bars = current.bars.filter((_, index) => index !== editorBarIndex);
-    const nextIndex = Math.min(editorBarIndex, bars.length - 1);
     setSelectingBars(false);
-    setEditorBarIndex(nextIndex);
-    updateSettings({
-      bars,
-      loopBar: deleteLoopIndex(current.loopBar, editorBarIndex, bars.length),
-    });
+    setSelectedBarIndexes([]);
+    setEditorBarIndex(result.index);
+    updateSettings({ bars: result.bars, loopBar: result.loopBar });
+    setStatus(`${indexes.length} 个小节已删除`);
   };
 
   const selectBar = (index) => {
@@ -1321,6 +1451,22 @@ export default function App() {
       setStatus("节奏已切换");
     } catch {
       setStatus("保存的节奏无效");
+    }
+  };
+
+  const deleteLocalRhythm = () => {
+    const saved = savedRhythms.find(({ id }) => id === selectedRhythmId);
+    if (!saved || !window.confirm(`删除“${saved.name}”？`)) return;
+    const next = savedRhythms.filter(({ id }) => id !== selectedRhythmId);
+    try {
+      localStorage.setItem(RHYTHM_LIBRARY_KEY, JSON.stringify(next));
+      setSavedRhythms(next);
+      setSelectedRhythmId("");
+      setRhythmName("");
+      setStatus("保存的节奏已删除");
+      setToast({ id: Date.now(), message: "保存的节奏已删除" });
+    } catch {
+      setStatus("删除失败");
     }
   };
 
@@ -1708,6 +1854,16 @@ export default function App() {
               <Save />
               <span>保存</span>
             </button>
+            <button
+              className="is-danger"
+              type="button"
+              onClick={deleteLocalRhythm}
+              disabled={!selectedRhythmId}
+              aria-label="删除当前保存的节奏"
+              title="删除当前保存的节奏"
+            >
+              <Trash2 />
+            </button>
           </div>
 
           <div className="advanced-transport" hidden={!advancedRhythm}>
@@ -1755,6 +1911,15 @@ export default function App() {
           </div>
 
           <div className="gap-click" hidden={!advancedRhythm}>
+            <button
+              className={settings.countIn ? "is-active" : ""}
+              type="button"
+              onClick={() => updateSettings({ countIn: !settings.countIn })}
+              aria-pressed={settings.countIn}
+              title="开始前预备一小节"
+            >
+              <span>Count-in</span>
+            </button>
             <button
               className={settings.gapClick ? "is-active" : ""}
               type="button"
@@ -1828,12 +1993,12 @@ export default function App() {
               <button
                 className="matrix-control"
                 type="button"
-                onClick={deleteBar}
+                onClick={() => deleteBars([editorBarIndex])}
                 disabled={settings.bars.length === 1}
                 aria-label="删除当前小节"
                 title="删除当前小节"
               >
-                <Minus />
+                <Trash2 />
               </button>
               <button
                 className="matrix-control"
@@ -1847,6 +2012,26 @@ export default function App() {
             </div>
 
             <div className="bar-actions" role="group" aria-label="小节编辑">
+              <button
+                className="matrix-icon-button"
+                type="button"
+                onClick={() => travelHistory("undo")}
+                disabled={!historyDepth.undo}
+                aria-label="撤销最近的节奏修改"
+                title="撤销"
+              >
+                <Undo2 />
+              </button>
+              <button
+                className="matrix-icon-button"
+                type="button"
+                onClick={() => travelHistory("redo")}
+                disabled={!historyDepth.redo}
+                aria-label="重做最近撤销的节奏修改"
+                title="重做"
+              >
+                <Redo2 />
+              </button>
               <button
                 className={`matrix-icon-button ${selectingBars ? "is-active" : ""}`}
                 type="button"
@@ -1876,6 +2061,16 @@ export default function App() {
                 title="所选小节右移"
               >
                 <ArrowRight />
+              </button>
+              <button
+                className="matrix-icon-button"
+                type="button"
+                onClick={() => deleteBars(activeBarIndexes)}
+                disabled={settings.bars.length === 1 || !activeBarIndexes.length}
+                aria-label="删除所选小节"
+                title="删除所选小节"
+              >
+                <Trash2 />
               </button>
               <button
                 className="matrix-icon-button"

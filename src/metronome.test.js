@@ -19,6 +19,7 @@ import {
   nextTrainingBpm,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
+  removeBarSelection,
   tempoName,
   toggleBeatStep,
 } from "./metronome.js";
@@ -49,6 +50,21 @@ test("rhythm data and tempo training stay predictable", () => {
   assert.equal(normalizeBars(Array.from({ length: 80 }, () => makeBar(1))).length, 80);
   assert.deepEqual(normalizeLoopRange([4, 2], 6), [2, 4]);
   assert.equal(normalizeLoopRange([2, 6], 6), null);
+  const removed = removeBarSelection(
+    [makeBar(1), makeBar(2), makeBar(3), makeBar(4)],
+    [1, 2],
+    [1, 3],
+  );
+  assert.deepEqual(removed, {
+    bars: [makeBar(1), makeBar(4)],
+    loopBar: [1, 1],
+    index: 1,
+  });
+  assert.deepEqual(removeBarSelection([makeBar(2)], [0], [0, 0]), {
+    bars: [makeBar(4, 1)],
+    loopBar: null,
+    index: 0,
+  });
   assert.equal(nextTrainingBpm(100, 105, 3), 103);
   assert.equal(nextTrainingBpm(103, 105, 3), 105);
   assert.equal(nextTrainingBpm(120, 100, 7), 113);
