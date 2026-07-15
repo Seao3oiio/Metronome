@@ -84,6 +84,37 @@ export function normalizeBars(value) {
   return bars.length ? bars : null;
 }
 
+export function encodeRhythm({ bpm, bars, loopBar }) {
+  return btoa(JSON.stringify({ v: 1, bpm, bars, loopBar }))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+export function decodeRhythm(code) {
+  const value = String(code).trim();
+  if (value.length > 12000 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error("Invalid rhythm code");
+  }
+  const payload = JSON.parse(
+    atob(value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=")),
+  );
+  const bars = normalizeBars(payload.bars);
+  const validLoop =
+    payload.loopBar === null ||
+    (Number.isInteger(payload.loopBar) && payload.loopBar >= 0 && payload.loopBar < bars?.length);
+  if (
+    payload.v !== 1 ||
+    clampBpm(payload.bpm) !== payload.bpm ||
+    !bars ||
+    JSON.stringify(bars) !== JSON.stringify(payload.bars) ||
+    !validLoop
+  ) {
+    throw new Error("Invalid rhythm code");
+  }
+  return { bpm: payload.bpm, bars, loopBar: payload.loopBar };
+}
+
 export function compileRhythm(bars, loopBar, ppq) {
   const selectedBars = Number.isInteger(loopBar)
     ? bars.slice(loopBar, loopBar + 1).map((bar) => [bar, loopBar])

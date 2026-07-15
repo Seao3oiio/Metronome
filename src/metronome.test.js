@@ -5,6 +5,8 @@ import {
   bpmFromTaps,
   clampBpm,
   compileRhythm,
+  decodeRhythm,
+  encodeRhythm,
   makeClickTrackWav,
   makeBar,
   normalizeBars,
@@ -58,6 +60,12 @@ test("mixed subdivisions return to exact beat and bar boundaries", () => {
   assert.equal(all.totalTicks, 960);
   assert.equal(compileRhythm(bars, 1, 192).totalTicks, 576);
   assert.equal(rhythmEventIndexAtTime(0.5, 120, compileRhythm([makeBar(2, 1)], null, 1)), 1);
+});
+
+test("rhythm codes round-trip and reject malformed data", () => {
+  const rhythm = { bpm: 108, bars: [makeBar(2, 3), makeBar(4, 1)], loopBar: 1 };
+  assert.deepEqual(decodeRhythm(encodeRhythm(rhythm)), rhythm);
+  assert.throws(() => decodeRhythm("not-a-rhythm"));
 });
 
 test("click tracks are valid looping PCM WAV files", () => {

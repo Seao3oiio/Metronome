@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
+  ArrowLeft,
+  ChevronRight,
+  ClipboardPaste,
+  Copy,
   Download,
   Hand,
   Minus,
@@ -24,6 +28,8 @@ import {
   bpmFromTaps,
   clampBpm,
   compileRhythm,
+  decodeRhythm,
+  encodeRhythm,
   makeClickTrackWav,
   makeBar,
   normalizeBars,
@@ -31,6 +37,16 @@ import {
   rhythmEventIndexAtTime,
   tempoName,
 } from "./metronome.js";
+
+const RHYTHM_SUBDIVISIONS = [
+  { value: 1, label: "四分" },
+  { value: 2, label: "八分" },
+  { value: 3, label: "三连" },
+  { value: 4, label: "十六分" },
+  { value: 5, label: "五连" },
+  { value: 6, label: "六连" },
+  { value: 8, label: "三十二分" },
+];
 
 const SOUNDS = [
   { value: "click", label: "清脆" },
@@ -144,18 +160,39 @@ function cloneBar(bar) {
 function RhythmDot({ className, label, title, onPress, onHold, style }) {
   const timerRef = useRef(null);
   const heldRef = useRef(false);
+  const pressedRef = useRef(false);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const startHold = (event) => {
-    if (event.button !== undefined && event.button !== 0) return;
+    if (event.button !== undefined && event.button !== 0) {
+      pressedRef.current = false;
+      return;
+    }
+    pressedRef.current = true;
     heldRef.current = false;
     timerRef.current = setTimeout(() => {
       heldRef.current = true;
       onHold?.();
     }, 480);
   };
-  const clearHold = () => clearTimeout(timerRef.current);
+  const cancelHold = () => clearTimeout(timerRef.current);
+
+  const finishPress = () => {
+    cancelHold();
+    if (!pressedRef.current) return;
+    pressedRef.current = false;
+    if (heldRef.current) {
+      heldRef.current = false;
+      return;
+    }
+    onPress();
+  };
+
+  const cancelPress = () => {
+    cancelHold();
+    pressedRef.current = false;
+  };
 
   return (
     <button
@@ -165,21 +202,14 @@ function RhythmDot({ className, label, title, onPress, onHold, style }) {
       aria-label={label}
       title={title}
       onPointerDown={startHold}
-      onPointerUp={clearHold}
-      onPointerCancel={clearHold}
-      onPointerLeave={clearHold}
-      onClick={(event) => {
-        if (heldRef.current) {
-          event.preventDefault();
-          heldRef.current = false;
-        } else {
-          onPress();
-        }
-      }}
+      onPointerUp={finishPress}
+      onPointerCancel={cancelPress}
+      onPointerLeave={cancelPress}
+      onClick={(event) => event.detail === 0 && onPress()}
       onContextMenu={(event) => {
         event.preventDefault();
         if (!heldRef.current) onHold?.();
-        heldRef.current = false;
+        heldRef.current = true;
       }}
     >
       <i aria-hidden="true" />
@@ -263,6 +293,11 @@ export default function App() {
   const [editorBarIndex, setEditorBarIndex] = useState(() => settings.loopBar ?? 0);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [showRhythmCode, setShowRhythmCode] = useState(false);
+  const [rhythmCode, setRhythmCode] = useState("");
+  const [advancedRhythm, setAdvancedRhythm] = useState(
+    () => window.location.hash === "#rhythm",
+  );
   const [installed, setInstalled] = useState(
     () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
   );
@@ -276,6 +311,7 @@ export default function App() {
   const generationRef = useRef(0);
   const audioRef = useRef(null);
   const installDialogRef = useRef(null);
+  const rhythmDialogRef = useRef(null);
   const isIOS = isIOSDevice();
 
   const updateSettings = useCallback((patch) => {
@@ -601,6 +637,12 @@ export default function App() {
   );
 
   useEffect(() => {
+    const syncPage = () => setAdvancedRhythm(window.location.hash === "#rhythm");
+    window.addEventListener("hashchange", syncPage);
+    return () => window.removeEventListener("hashchange", syncPage);
+  }, []);
+
+  useEffect(() => {
     const captureInstallPrompt = (event) => {
       event.preventDefault();
       setInstallPrompt(event);
@@ -625,6 +667,13 @@ export default function App() {
     if (showInstallHelp && !dialog.open) dialog.showModal();
     else if (!showInstallHelp && dialog.open) dialog.close();
   }, [showInstallHelp]);
+
+  useEffect(() => {
+    const dialog = rhythmDialogRef.current;
+    if (!dialog) return;
+    if (showRhythmCode && !dialog.open) dialog.showModal();
+    else if (!showRhythmCode && dialog.open) dialog.close();
+  }, [showRhythmCode]);
 
   const updateBeat = (barIndex, beatIndex, updater, structural = false) => {
     if (structural && playingRef.current) stop("节奏已更新");
@@ -721,6 +770,47 @@ export default function App() {
     updateSettings({ loopBar: settingsRef.current.loopBar === null ? editorBarIndex : null });
   };
 
+  const changeUniformRhythm = ({ beats, subdivision }) => {
+    const bar = settingsRef.current.bars[0];
+    const uniformSubdivision = bar.beats.every(
+      (beat) => beat.steps.length === bar.beats[0].steps.length,
+    )
+      ? bar.beats[0].steps.length
+      : 1;
+    if (playingRef.current) stop("节奏已更新");
+    setEditorBarIndex(0);
+    updateSettings({
+      bars: [makeBar(beats ?? bar.beats.length, subdivision ?? uniformSubdivision)],
+      loopBar: null,
+    });
+  };
+
+  const exportRhythm = async () => {
+    const code = encodeRhythm(settingsRef.current);
+    setRhythmCode(code);
+    setShowRhythmCode(true);
+    try {
+      await navigator.clipboard.writeText(code);
+      setStatus("节奏编码已复制");
+    } catch {
+      setStatus("请手动复制编码");
+    }
+  };
+
+  const importRhythm = () => {
+    try {
+      const rhythm = decodeRhythm(rhythmCode);
+      if (playingRef.current) stop("节奏已导入");
+      setEditorBarIndex(rhythm.loopBar ?? 0);
+      setBpmDraft(String(rhythm.bpm));
+      updateSettings(rhythm);
+      setShowRhythmCode(false);
+      setStatus("节奏已导入");
+    } catch {
+      setStatus("编码无效");
+    }
+  };
+
   const changeTrainer = (patch) => {
     barsRef.current = 0;
     minuteDeadlineRef.current = audioRef.current?.media
@@ -731,6 +821,12 @@ export default function App() {
 
   const editorBar = settings.bars[editorBarIndex] ?? settings.bars[0];
   const displayBar = settings.bars[playing ? visual.bar : editorBarIndex] ?? editorBar;
+  const uniformRhythm =
+    settings.bars.length === 1 &&
+    editorBar.beats.every(
+      (beat) => beat.enabled && beat.steps.length === editorBar.beats[0].steps.length,
+    );
+  const quickSubdivision = uniformRhythm ? editorBar.beats[0].steps.length : "";
   const matrixHeight =
     Math.max(...editorBar.beats.map((beat) => beat.steps.length)) * 48 + 44;
 
@@ -774,8 +870,15 @@ export default function App() {
         </div>
       </header>
 
-      <main id="main" className="workspace">
-        <section className="card stage-card" aria-labelledby="tempo-heading">
+      <main
+        id="main"
+        className={`workspace ${advancedRhythm ? "is-rhythm-page" : ""}`}
+      >
+        <section
+          className="card stage-card"
+          aria-labelledby="tempo-heading"
+          hidden={advancedRhythm}
+        >
           <div className="section-kicker">
             <span>BPM</span>
             <span className="tempo-name">{tempoName(settings.bpm)}</span>
@@ -889,10 +992,39 @@ export default function App() {
           </div>
         </section>
 
-        <aside className="card settings-card" aria-labelledby="settings-heading">
+        <aside
+          className={`card settings-card ${advancedRhythm ? "advanced-rhythm-card" : ""}`}
+          aria-labelledby="settings-heading"
+        >
           <div className="settings-heading">
-            <h2 id="settings-heading">设置</h2>
-            {!installed && (
+            {advancedRhythm ? (
+              <a className="rhythm-back" href="#main" aria-label="返回设置">
+                <ArrowLeft />
+              </a>
+            ) : (
+              <h2 id="settings-heading">设置</h2>
+            )}
+            {advancedRhythm && <h2 id="settings-heading">高级节奏</h2>}
+            {advancedRhythm && (
+              <div className="rhythm-share-actions">
+                <button type="button" onClick={exportRhythm} aria-label="复制节奏编码">
+                  <Copy />
+                  <span>复制</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRhythmCode("");
+                    setShowRhythmCode(true);
+                  }}
+                  aria-label="导入节奏编码"
+                >
+                  <ClipboardPaste />
+                  <span>导入</span>
+                </button>
+              </div>
+            )}
+            {!advancedRhythm && !installed && (
               <button className="install-button" type="button" onClick={installApp}>
                 <Download />
                 添加到桌面
@@ -900,7 +1032,51 @@ export default function App() {
             )}
           </div>
 
-          <div className="setting-block rhythm-block">
+          <div className="quick-rhythm" hidden={advancedRhythm}>
+            <div className="setting-block">
+              <div className="setting-label">
+                <span>快捷节奏</span>
+              </div>
+              <div className="quick-rhythm-selects">
+                <label>
+                  <span>拍号</span>
+                  <select
+                    value={uniformRhythm ? editorBar.beats.length : ""}
+                    onChange={(event) => changeUniformRhythm({ beats: Number(event.target.value) })}
+                  >
+                    {!uniformRhythm && <option value="">自定义</option>}
+                    {[2, 3, 4, 5, 6].map((beats) => (
+                      <option key={beats} value={beats}>{beats}/4</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>拍内细分</span>
+                  <select
+                    value={quickSubdivision}
+                    onChange={(event) =>
+                      changeUniformRhythm({ subdivision: Number(event.target.value) })
+                    }
+                  >
+                    {!uniformRhythm && <option value="">自定义</option>}
+                    {RHYTHM_SUBDIVISIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <a
+              className={`advanced-rhythm-link ${uniformRhythm ? "" : "is-active"}`}
+              href="#rhythm"
+            >
+              <span>高级节奏</span>
+              <ChevronRight />
+            </a>
+          </div>
+
+          <div className="setting-block rhythm-block" hidden={!advancedRhythm}>
             <div className="rhythm-toolbar">
               <button
                 className={`matrix-icon-button ${settings.loopBar !== null ? "is-active" : ""}`}
@@ -976,12 +1152,12 @@ export default function App() {
                       <button
                         className="matrix-control subdivision-control"
                         type="button"
-                        onClick={() => resizeBeat(beatIndex, -1)}
-                        disabled={beat.steps.length === 1}
-                        aria-label={`减少第 ${beatIndex + 1} 拍的细分`}
-                        title="减少细分"
+                        onClick={() => resizeBeat(beatIndex, 1)}
+                        disabled={beat.steps.length === MAX_SUBDIVISION}
+                        aria-label={`增加第 ${beatIndex + 1} 拍的细分`}
+                        title="增加细分"
                       >
-                        <Minus />
+                        <Plus />
                       </button>
 
                       <div className="matrix-track">
@@ -1031,13 +1207,14 @@ export default function App() {
                       <button
                         className="matrix-control subdivision-control"
                         type="button"
-                        onClick={() => resizeBeat(beatIndex, 1)}
-                        disabled={beat.steps.length === MAX_SUBDIVISION}
-                        aria-label={`增加第 ${beatIndex + 1} 拍的细分`}
-                        title="增加细分"
+                        onClick={() => resizeBeat(beatIndex, -1)}
+                        disabled={beat.steps.length === 1}
+                        aria-label={`减少第 ${beatIndex + 1} 拍的细分`}
+                        title="减少细分"
                       >
-                        <Plus />
+                        <Minus />
                       </button>
+
                     </fieldset>
                   ))}
                 </div>
@@ -1067,7 +1244,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="setting-block">
+          <div className="setting-block" hidden={advancedRhythm}>
             <div className="setting-label">
               <span>音色</span>
             </div>
@@ -1087,7 +1264,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="setting-block trainer-block">
+          <div className="setting-block trainer-block" hidden={advancedRhythm}>
             <div className="setting-label trainer-heading">
               <span>自动变速</span>
               <label className="switch">
@@ -1186,7 +1363,7 @@ export default function App() {
             )}
           </div>
 
-          <div className="setting-block volume-block">
+          <div className="setting-block volume-block" hidden={advancedRhythm}>
             <div className="setting-label">
               <span>音量</span>
               <small>{settings.muted ? "静音" : `${settings.volume}%`}</small>
@@ -1216,6 +1393,55 @@ export default function App() {
           </div>
         </aside>
       </main>
+      <dialog
+        ref={rhythmDialogRef}
+        className="install-dialog rhythm-code-dialog"
+        aria-labelledby="rhythm-code-title"
+        onClose={() => setShowRhythmCode(false)}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) setShowRhythmCode(false);
+        }}
+      >
+        <button
+          className="dialog-close"
+          type="button"
+          onClick={() => setShowRhythmCode(false)}
+          aria-label="关闭"
+        >
+          <X />
+        </button>
+        <h2 id="rhythm-code-title">节奏编码</h2>
+        <textarea
+          value={rhythmCode}
+          onChange={(event) => setRhythmCode(event.target.value.trim())}
+          placeholder="粘贴节奏编码"
+          aria-label="节奏编码"
+          maxLength={12000}
+          autoFocus
+          spellCheck="false"
+        />
+        <div className="rhythm-code-actions">
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(rhythmCode);
+                setStatus("节奏编码已复制");
+              } catch {
+                setStatus("请手动复制编码");
+              }
+            }}
+            disabled={!rhythmCode}
+          >
+            <Copy />
+            复制
+          </button>
+          <button type="button" onClick={importRhythm} disabled={!rhythmCode}>
+            <ClipboardPaste />
+            导入
+          </button>
+        </div>
+      </dialog>
       <dialog
         ref={installDialogRef}
         className="install-dialog"

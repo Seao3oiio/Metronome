@@ -190,6 +190,10 @@ input:focus-visible {
   align-items: start;
 }
 
+.workspace.is-rhythm-page {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .card {
   position: relative;
   overflow: hidden;
@@ -582,6 +586,49 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: -0.035em;
 }
 
+.advanced-rhythm-card {
+  min-height: 700px;
+}
+
+.advanced-rhythm-card .settings-heading {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.rhythm-back {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--muted-strong);
+  place-items: center;
+}
+
+.rhythm-back svg,
+.rhythm-share-actions svg {
+  width: 17px;
+}
+
+.rhythm-share-actions {
+  display: flex;
+  gap: 7px;
+}
+
+.rhythm-share-actions button {
+  display: inline-flex;
+  min-height: 44px;
+  gap: 6px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted-strong);
+  cursor: pointer;
+}
+
 .install-button {
   display: inline-flex;
   gap: 7px;
@@ -635,6 +682,61 @@ input[type="range"]::-moz-range-thumb {
 .setting-label small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.quick-rhythm-selects {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quick-rhythm-selects label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.quick-rhythm-selects select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  outline: 0;
+  background: rgba(7, 9, 13, 0.42);
+  color: var(--text);
+  font-size: 16px;
+}
+
+.quick-rhythm-selects select:focus {
+  border-color: rgba(116, 228, 208, 0.48);
+}
+
+.advanced-rhythm-link {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.advanced-rhythm-link.is-active {
+  border-color: rgba(139, 123, 255, 0.3);
+  color: var(--violet-bright);
+}
+
+.advanced-rhythm-link svg {
+  width: 17px;
 }
 
 .rhythm-block {
@@ -779,11 +881,6 @@ input[type="range"]::-moz-range-thumb {
   position: relative;
   width: 100%;
   height: var(--matrix-height);
-  transition: opacity 160ms ease;
-}
-
-.rhythm-column.is-disabled .matrix-track {
-  opacity: 0.28;
 }
 
 .matrix-dot-track {
@@ -800,6 +897,8 @@ input[type="range"]::-moz-range-thumb {
   height: 44px;
   transform: translateY(-50%);
   place-items: center;
+  touch-action: manipulation;
+  user-select: none;
 }
 
 .rhythm-dot i {
@@ -1276,6 +1375,58 @@ footer {
   cursor: pointer;
 }
 
+.rhythm-code-dialog h2 {
+  margin-top: 0;
+}
+
+.rhythm-code-dialog textarea {
+  width: 100%;
+  min-height: 150px;
+  margin-top: 18px;
+  padding: 13px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  outline: 0;
+  background: rgba(7, 9, 13, 0.55);
+  color: var(--text);
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.rhythm-code-dialog textarea:focus {
+  border-color: rgba(116, 228, 208, 0.48);
+}
+
+.rhythm-code-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.rhythm-code-actions button {
+  display: inline-flex;
+  min-height: 48px;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(139, 123, 255, 0.11);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.rhythm-code-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.rhythm-code-actions svg {
+  width: 17px;
+}
+
 @keyframes beat-pulse {
   from {
     opacity: 0.9;
@@ -1386,6 +1537,25 @@ footer {
   .stage-card,
   .settings-card {
     padding: 21px;
+  }
+
+  .advanced-rhythm-card .settings-heading {
+    grid-template-columns: 44px minmax(0, 1fr) 95px;
+    gap: 5px;
+  }
+
+  .rhythm-share-actions {
+    gap: 5px;
+  }
+
+  .rhythm-share-actions button {
+    width: 45px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .rhythm-share-actions span {
+    display: none;
   }
 
   .tempo-stage {
