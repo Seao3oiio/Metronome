@@ -14,7 +14,7 @@ export default defineConfig({
         short_name: "Pulse",
         description: "准确、易用、支持自定义节奏和变速练习的节拍器",
         lang: "zh-CN",
-        id: "/",
+        id: "/Metronome/",
         theme_color: "#0b0d12",
         background_color: "#0b0d12",
         display: "standalone",
