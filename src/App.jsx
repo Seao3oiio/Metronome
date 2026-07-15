@@ -7,6 +7,7 @@ import {
   Pause,
   Play,
   Plus,
+  Repeat2,
   Share2,
   Volume2,
   VolumeX,
@@ -16,23 +17,20 @@ import * as Tone from "tone";
 import {
   BPM_MAX,
   BPM_MIN,
+  MAX_BARS,
+  MAX_BEATS,
+  MAX_SUBDIVISION,
   advanceMinuteDeadline,
   bpmFromTaps,
   clampBpm,
-  makePattern,
+  compileRhythm,
+  makeClickTrackWav,
+  makeBar,
+  normalizeBars,
   nextTrainingBpm,
+  rhythmEventIndexAtTime,
   tempoName,
 } from "./metronome.js";
-
-const SUBDIVISIONS = [
-  { value: 1, label: "主拍" },
-  { value: 2, label: "八分" },
-  { value: 3, label: "三连" },
-  { value: 4, label: "十六" },
-  { value: 5, label: "五连" },
-  { value: 6, label: "六连" },
-  { value: 8, label: "三十二" },
-];
 
 const SOUNDS = [
   { value: "click", label: "清脆" },
@@ -42,17 +40,17 @@ const SOUNDS = [
 ];
 
 const SOUND_NOTES = {
-  click: { accent: 1660, main: 1080, sub: 620, duration: 0.025 },
-  wood: { accent: 820, main: 610, sub: 430, duration: 0.045 },
-  drum: { accent: 180, main: 120, sub: 82, duration: 0.07 },
-  soft: { accent: 940, main: 720, sub: 520, duration: 0.04 },
+  click: { accent: 1660, normal: 1080, duration: 0.025 },
+  wood: { accent: 820, normal: 610, duration: 0.045 },
+  drum: { accent: 180, normal: 120, duration: 0.07 },
+  soft: { accent: 940, normal: 720, duration: 0.04 },
 };
 
 const DEFAULT_SETTINGS = {
+  schemaVersion: 2,
   bpm: 96,
-  beats: 4,
-  subdivision: 1,
-  pattern: makePattern(4, 1),
+  bars: null,
+  loopBar: null,
   sound: "click",
   trainer: false,
   startBpm: 96,
@@ -64,30 +62,58 @@ const DEFAULT_SETTINGS = {
   muted: false,
 };
 
+function freshSettings() {
+  return { ...DEFAULT_SETTINGS, bars: [makeBar(4, 1)] };
+}
+
 function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem("pulse-settings"));
-    if (!saved) return DEFAULT_SETTINGS;
+    const defaults = freshSettings();
+    if (!saved) return defaults;
 
-    const beats = [2, 3, 4, 6].includes(saved.beats) ? saved.beats : 4;
-    const subdivision = SUBDIVISIONS.some(({ value }) => value === saved.subdivision)
-      ? saved.subdivision
+    const legacyBeats = Number.isInteger(saved.beats)
+      ? Math.min(MAX_BEATS, Math.max(1, saved.beats))
+      : 4;
+    const legacySubdivision = Number.isInteger(saved.subdivision)
+      ? Math.min(MAX_SUBDIVISION, Math.max(1, saved.subdivision))
       : 1;
-    const validPattern =
+    const validLegacyPattern =
       Array.isArray(saved.pattern) &&
-      saved.pattern.length === beats * subdivision &&
-      saved.pattern.some(Boolean) &&
+      saved.pattern.length === legacyBeats * legacySubdivision &&
       saved.pattern.every((step) => [0, 1, 2].includes(step));
-    const pattern = validPattern ? saved.pattern : makePattern(beats, subdivision);
-    if (!validPattern && saved.accent === false) pattern[0] = 1;
+    const legacyBar = makeBar(legacyBeats, legacySubdivision);
+    if (validLegacyPattern) {
+      legacyBar.beats = legacyBar.beats.map((beat, index) => ({
+        ...beat,
+        steps: saved.pattern.slice(
+          index * legacySubdivision,
+          (index + 1) * legacySubdivision,
+        ),
+      }));
+    } else if (saved.accent === false) {
+      legacyBar.beats[0].steps[0] = 1;
+    }
+    const bars = normalizeBars(saved.bars) ?? [legacyBar];
+    const loopBar =
+      Number.isInteger(saved.loopBar) && saved.loopBar >= 0 && saved.loopBar < bars.length
+        ? saved.loopBar
+        : null;
+    const {
+      beats: _legacyBeats,
+      subdivision: _legacySubdivision,
+      pattern: _legacyPattern,
+      accent: _legacyAccent,
+      ...savedSettings
+    } = saved;
 
     return {
-      ...DEFAULT_SETTINGS,
-      ...saved,
-      bpm: clampBpm(saved.bpm),
-      beats,
-      subdivision,
-      pattern,
+      ...defaults,
+      ...savedSettings,
+      schemaVersion: 2,
+      bpm: clampBpm(saved.bpm ?? defaults.bpm),
+      bars,
+      loopBar,
       sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : "click",
       startBpm: clampBpm(saved.startBpm ?? saved.bpm ?? 96),
       targetBpm: clampBpm(saved.targetBpm ?? 120),
@@ -98,13 +124,67 @@ function loadSettings() {
         : 2,
       volume: Number.isFinite(Number(saved.volume))
         ? Math.min(100, Math.max(0, Number(saved.volume)))
-        : DEFAULT_SETTINGS.volume,
+        : defaults.volume,
       trainer: Boolean(saved.trainer),
       muted: Boolean(saved.muted),
     };
   } catch {
-    return DEFAULT_SETTINGS;
+    return freshSettings();
   }
+}
+
+function cloneBeat(beat) {
+  return { ...beat, steps: [...beat.steps] };
+}
+
+function cloneBar(bar) {
+  return { beats: bar.beats.map(cloneBeat) };
+}
+
+function RhythmDot({ className, label, title, onPress, onHold, style }) {
+  const timerRef = useRef(null);
+  const heldRef = useRef(false);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const startHold = (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    heldRef.current = false;
+    timerRef.current = setTimeout(() => {
+      heldRef.current = true;
+      onHold?.();
+    }, 480);
+  };
+  const clearHold = () => clearTimeout(timerRef.current);
+
+  return (
+    <button
+      className={className}
+      type="button"
+      style={style}
+      aria-label={label}
+      title={title}
+      onPointerDown={startHold}
+      onPointerUp={clearHold}
+      onPointerCancel={clearHold}
+      onPointerLeave={clearHold}
+      onClick={(event) => {
+        if (heldRef.current) {
+          event.preventDefault();
+          heldRef.current = false;
+        } else {
+          onPress();
+        }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        if (!heldRef.current) onHold?.();
+        heldRef.current = false;
+      }}
+    >
+      <i aria-hidden="true" />
+    </button>
+  );
 }
 
 function createInstruments(output) {
@@ -144,12 +224,43 @@ function setAudioSession(type) {
   }
 }
 
+function isIOSDevice() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function mediaTrackKey(settings) {
+  return JSON.stringify([settings.bpm, settings.sound, settings.loopBar, settings.bars]);
+}
+
+async function syncMediaLoop(audio, settings) {
+  audio.media.volume = settings.muted ? 0 : settings.volume / 100;
+  const key = mediaTrackKey(settings);
+  if (audio.mediaKey === key) return;
+
+  const url = URL.createObjectURL(
+    new Blob([makeClickTrackWav(settings)], { type: "audio/wav" }),
+  );
+  const previousUrl = audio.url;
+  audio.media.src = url;
+  audio.mediaKey = key;
+  audio.lastEvent = -1;
+  audio.lastTime = -1;
+  audio.plan = compileRhythm(settings.bars, settings.loopBar, 1);
+  audio.url = url;
+  await audio.media.play();
+  if (previousUrl) URL.revokeObjectURL(previousUrl);
+}
+
 export default function App() {
   const [settings, setSettings] = useState(loadSettings);
   const [bpmDraft, setBpmDraft] = useState(String(settings.bpm));
   const [playing, setPlaying] = useState(false);
   const [status, setStatus] = useState("就绪");
-  const [visual, setVisual] = useState({ beat: 0, sub: 0, pulse: 0, hit: false });
+  const [visual, setVisual] = useState({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false });
+  const [editorBarIndex, setEditorBarIndex] = useState(() => settings.loopBar ?? 0);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [installed, setInstalled] = useState(
@@ -159,13 +270,13 @@ export default function App() {
   const settingsRef = useRef(settings);
   const playingRef = useRef(false);
   const startingRef = useRef(false);
-  const stepRef = useRef(0);
   const barsRef = useRef(0);
   const minuteDeadlineRef = useRef(60);
   const tapsRef = useRef([]);
   const generationRef = useRef(0);
   const audioRef = useRef(null);
   const installDialogRef = useRef(null);
+  const isIOS = isIOSDevice();
 
   const updateSettings = useCallback((patch) => {
     settingsRef.current = { ...settingsRef.current, ...patch };
@@ -178,11 +289,20 @@ export default function App() {
   );
 
   const disposeAudio = useCallback(() => {
+    if (!audioRef.current) return;
+    if (audioRef.current?.media) {
+      cancelAnimationFrame(audioRef.current.raf);
+      audioRef.current.media.pause();
+      audioRef.current.media.removeAttribute("src");
+      if (audioRef.current.url) URL.revokeObjectURL(audioRef.current.url);
+      audioRef.current = null;
+      return;
+    }
     const transport = Tone.getTransport();
     transport.stop();
     transport.cancel(0);
     Tone.getDraw().cancel(0);
-    audioRef.current?.loop.dispose();
+    audioRef.current?.part.dispose();
     Object.values(audioRef.current?.instruments ?? {}).forEach((instrument) => instrument.dispose());
     audioRef.current?.output.dispose();
     audioRef.current = null;
@@ -193,7 +313,7 @@ export default function App() {
       generationRef.current += 1;
       playingRef.current = false;
       setPlaying(false);
-      setVisual({ beat: 0, sub: 0, pulse: 0, hit: false });
+      setVisual({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false });
       setStatus(message);
       disposeAudio();
       setAudioSession("auto");
@@ -210,30 +330,116 @@ export default function App() {
 
     try {
       setAudioSession("playback");
-      await Tone.start();
-      if (run !== generationRef.current) return;
-
-      const transport = Tone.getTransport();
       if (settingsRef.current.trainer) {
         const bpm = settingsRef.current.startBpm;
         settingsRef.current = { ...settingsRef.current, bpm };
         setSettings((current) => ({ ...current, bpm }));
       }
+
+      let mediaAudio = null;
+      if (isIOS) {
+        const media = new Audio();
+        media.loop = true;
+        media.preload = "auto";
+        media.setAttribute("playsinline", "");
+        mediaAudio = {
+          media,
+          mediaKey: null,
+          url: null,
+          raf: 0,
+          lastEvent: -1,
+          lastTime: -1,
+          plan: null,
+          startedAt: performance.now() / 1000,
+        };
+        audioRef.current = mediaAudio;
+        await syncMediaLoop(mediaAudio, settingsRef.current);
+        if (run !== generationRef.current) return;
+        mediaAudio.startedAt = performance.now() / 1000;
+
+        barsRef.current = 0;
+        minuteDeadlineRef.current = 60;
+        playingRef.current = true;
+        setPlaying(true);
+        setStatus("运行中");
+
+        const draw = () => {
+          if (generationRef.current !== run || !playingRef.current) return;
+          const current = settingsRef.current;
+          const eventIndex = rhythmEventIndexAtTime(
+            media.currentTime,
+            current.bpm,
+            mediaAudio.plan,
+          );
+          const wrapped = mediaAudio.lastTime >= 0 && media.currentTime < mediaAudio.lastTime;
+
+          if (eventIndex !== mediaAudio.lastEvent || wrapped) {
+            const event = mediaAudio.plan.events[eventIndex];
+            const beatData = current.bars[event.bar]?.beats[event.beat];
+            const step = beatData?.steps[event.sub] ?? 0;
+            const enteredBar =
+              mediaAudio.lastEvent >= 0 && event.beat === 0 && event.sub === 0;
+            if (enteredBar) barsRef.current += 1;
+            const elapsed = performance.now() / 1000 - mediaAudio.startedAt;
+            const nextMinuteDeadline =
+              current.trainer && current.changeMode === "minute"
+                ? advanceMinuteDeadline(elapsed, minuteDeadlineRef.current)
+                : null;
+            const barsDue =
+              current.trainer &&
+              current.changeMode === "bars" &&
+              enteredBar &&
+              barsRef.current % current.changeEvery === 0;
+
+            if (barsDue || nextMinuteDeadline !== null) {
+              if (nextMinuteDeadline !== null) minuteDeadlineRef.current = nextMinuteDeadline;
+              const bpm = nextTrainingBpm(current.bpm, current.targetBpm, current.changeAmount);
+              if (bpm !== current.bpm) {
+                settingsRef.current = { ...current, bpm };
+                setSettings((previous) => ({ ...previous, bpm }));
+              }
+            }
+
+            setVisual({
+              bar: event.bar,
+              beat: event.beat,
+              sub: event.sub,
+              pulse: performance.now(),
+              hit: beatData?.enabled && step > 0,
+            });
+            mediaAudio.lastEvent = eventIndex;
+          }
+          mediaAudio.lastTime = media.currentTime;
+          mediaAudio.raf = requestAnimationFrame(draw);
+        };
+        mediaAudio.raf = requestAnimationFrame(draw);
+        return;
+      }
+
+      await Tone.start();
+      if (run !== generationRef.current) return;
+
+      const transport = Tone.getTransport();
       const output = new Tone.Gain(
         settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
       ).toDestination();
       const instruments = createInstruments(output);
 
-      stepRef.current = 0;
       barsRef.current = 0;
       transport.position = 0;
       minuteDeadlineRef.current = 60;
       transport.bpm.value = settingsRef.current.bpm;
 
-      const loop = new Tone.Loop((time) => {
+      const plan = compileRhythm(
+        settingsRef.current.bars,
+        settingsRef.current.loopBar,
+        transport.PPQ,
+      );
+      const part = new Tone.Part((time, event) => {
         let current = settingsRef.current;
-        const stepsPerBar = current.beats * current.subdivision;
-        const stepIndex = stepRef.current % stepsPerBar;
+        const beatData = current.bars[event.bar]?.beats[event.beat];
+        const step = beatData?.steps[event.sub] ?? 0;
+        const enteredBar = event.beat === 0 && event.sub === 0;
 
         const nextMinuteDeadline =
           current.trainer && current.changeMode === "minute"
@@ -244,7 +450,7 @@ export default function App() {
             : null;
         const barsDue =
           current.changeMode === "bars" &&
-          stepIndex === 0 &&
+          enteredBar &&
           barsRef.current > 0 &&
           barsRef.current % current.changeEvery === 0;
 
@@ -263,27 +469,31 @@ export default function App() {
           }
         }
 
-        const beat = Math.floor(stepIndex / current.subdivision);
-        const sub = stepIndex % current.subdivision;
-        const step = current.pattern[stepIndex] ?? 0;
-
-        if (step > 0) {
+        if (beatData?.enabled && step > 0) {
           const note = SOUND_NOTES[current.sound];
-          const frequency = step === 2 ? note.accent : sub === 0 ? note.main : note.sub;
-          const velocity = step === 2 ? 1 : sub === 0 ? 0.74 : 0.4;
+          const frequency = step === 2 ? note.accent : note.normal;
+          const velocity = step === 2 ? 1 : 0.74;
           instruments[current.sound].triggerAttackRelease(frequency, note.duration, time, velocity);
         }
 
         Tone.getDraw().schedule(() => {
           if (generationRef.current !== run || !playingRef.current) return;
-          setVisual({ beat, sub, pulse: performance.now(), hit: step > 0 });
+          setVisual({
+            bar: event.bar,
+            beat: event.beat,
+            sub: event.sub,
+            pulse: performance.now(),
+            hit: Boolean(beatData?.enabled && step > 0),
+          });
         }, time);
 
-        stepRef.current = (stepIndex + 1) % stepsPerBar;
-        if (stepRef.current === 0) barsRef.current += 1;
-      }, Tone.Ticks(transport.PPQ / settingsRef.current.subdivision)).start(0);
+        if (enteredBar) barsRef.current += 1;
+      }, plan.events.map((event) => [Tone.Ticks(event.ticks), event]));
+      part.loop = true;
+      part.loopEnd = Tone.Ticks(plan.totalTicks);
+      part.start(0);
 
-      audioRef.current = { loop, instruments, output };
+      audioRef.current = { part, instruments, output };
       playingRef.current = true;
       setPlaying(true);
       setStatus("运行中");
@@ -293,7 +503,7 @@ export default function App() {
     } finally {
       startingRef.current = false;
     }
-  }, [disposeAudio, stop]);
+  }, [disposeAudio, isIOS, stop]);
 
   const togglePlayback = useCallback(() => {
     if (playingRef.current) stop();
@@ -328,21 +538,16 @@ export default function App() {
       // Private browsing can deny storage; playback should still work.
     }
 
-    const transport = Tone.getTransport();
-    transport.bpm.rampTo(settings.bpm, 0.04);
-    audioRef.current?.output.gain.rampTo(
+    if (audioRef.current?.media) {
+      syncMediaLoop(audioRef.current, settings).catch(() => setStatus("点击恢复"));
+    } else {
+      Tone.getTransport().bpm.rampTo(settings.bpm, 0.04);
+    }
+    audioRef.current?.output?.gain.rampTo(
       settings.muted ? 0 : settings.volume / 100,
       0.03,
     );
   }, [settings]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.loop.interval = Tone.Ticks(
-        Tone.getTransport().PPQ / settings.subdivision,
-      );
-    }
-  }, [settings.subdivision]);
 
   useEffect(() => {
     const handleKey = (event) => {
@@ -365,14 +570,15 @@ export default function App() {
     };
 
     const restoreAudio = () => {
-      if (
-        document.visibilityState === "visible" &&
-        playingRef.current &&
-        Tone.getContext().state !== "running"
-      ) {
-        Tone.start()
+      if (document.visibilityState !== "visible" || !playingRef.current) return;
+      if (audioRef.current?.media?.paused) {
+        audioRef.current.media
+          .play()
           .then(() => setStatus("运行中"))
           .catch(() => setStatus("点击恢复"));
+      }
+      if (!audioRef.current?.media && Tone.getContext().state !== "running") {
+        Tone.start().catch(() => setStatus("点击恢复"));
       }
     };
 
@@ -420,39 +626,113 @@ export default function App() {
     else if (!showInstallHelp && dialog.open) dialog.close();
   }, [showInstallHelp]);
 
-  const changeRhythm = (patch) => {
-    const beats = patch.beats ?? settingsRef.current.beats;
-    const subdivision = patch.subdivision ?? settingsRef.current.subdivision;
-    updateSettings({ ...patch, pattern: makePattern(beats, subdivision) });
-    stepRef.current = 0;
+  const updateBeat = (barIndex, beatIndex, updater, structural = false) => {
+    if (structural && playingRef.current) stop("节奏已更新");
+    const bars = settingsRef.current.bars.map((bar, currentBar) =>
+      currentBar === barIndex
+        ? {
+            beats: bar.beats.map((beat, currentBeat) =>
+              currentBeat === beatIndex ? updater(beat) : beat,
+            ),
+          }
+        : bar,
+    );
     barsRef.current = 0;
+    updateSettings({ bars });
   };
 
-  const cyclePatternStep = (index) => {
-    const pattern = [...settings.pattern];
-    pattern[index] = pattern[index] === 1 ? 2 : pattern[index] === 2 ? 0 : 1;
-    if (!pattern.some(Boolean)) {
-      setStatus("至少保留一格");
+  const resizeBeat = (beatIndex, amount) => {
+    const length = settingsRef.current.bars[editorBarIndex].beats[beatIndex].steps.length;
+    if ((amount < 0 && length === 1) || (amount > 0 && length === MAX_SUBDIVISION)) return;
+    updateBeat(
+      editorBarIndex,
+      beatIndex,
+      (beat) => ({
+        ...beat,
+        steps:
+          amount > 0
+            ? [...beat.steps, 1]
+            : beat.steps.slice(0, Math.max(1, beat.steps.length - 1)),
+      }),
+      true,
+    );
+  };
+
+  const toggleBeat = (beatIndex) => {
+    updateBeat(editorBarIndex, beatIndex, (beat) => ({ ...beat, enabled: !beat.enabled }));
+  };
+
+  const toggleStep = (beatIndex, sub, accent = false) => {
+    updateBeat(editorBarIndex, beatIndex, (beat) => {
+      const steps = [...beat.steps];
+      steps[sub] = accent ? (steps[sub] === 2 ? 1 : 2) : steps[sub] === 0 ? 1 : 0;
+      return { ...beat, steps };
+    });
+  };
+
+  const resizeBar = (amount) => {
+    const bars = settingsRef.current.bars;
+    const bar = bars[editorBarIndex];
+    if ((amount < 0 && bar.beats.length === 1) || (amount > 0 && bar.beats.length === MAX_BEATS)) {
       return;
     }
-    updateSettings({ pattern });
+    if (playingRef.current) stop("节奏已更新");
+    const beats =
+      amount > 0
+        ? [...bar.beats, cloneBeat(bar.beats.at(-1))]
+        : bar.beats.slice(0, -1);
+    updateSettings({
+      bars: bars.map((current, index) => (index === editorBarIndex ? { beats } : current)),
+    });
+  };
+
+  const duplicateBar = () => {
+    const current = settingsRef.current;
+    if (current.bars.length === MAX_BARS) return;
+    if (playingRef.current) stop("节奏已更新");
+    const bars = [...current.bars];
+    const nextIndex = editorBarIndex + 1;
+    bars.splice(nextIndex, 0, cloneBar(bars[editorBarIndex]));
+    setEditorBarIndex(nextIndex);
+    updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
+  };
+
+  const deleteBar = () => {
+    const current = settingsRef.current;
+    if (current.bars.length === 1) return;
+    if (playingRef.current) stop("节奏已更新");
+    const bars = current.bars.filter((_, index) => index !== editorBarIndex);
+    const nextIndex = Math.min(editorBarIndex, bars.length - 1);
+    setEditorBarIndex(nextIndex);
+    updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
+  };
+
+  const selectBar = (index) => {
+    const current = settingsRef.current;
+    if (current.loopBar !== null && current.loopBar !== index) {
+      if (playingRef.current) stop("循环已更新");
+      updateSettings({ loopBar: index });
+    }
+    setEditorBarIndex(index);
+  };
+
+  const toggleBarLoop = () => {
+    if (playingRef.current) stop("循环已更新");
+    updateSettings({ loopBar: settingsRef.current.loopBar === null ? editorBarIndex : null });
   };
 
   const changeTrainer = (patch) => {
     barsRef.current = 0;
-    minuteDeadlineRef.current = Tone.getTransport().seconds + 60;
+    minuteDeadlineRef.current = audioRef.current?.media
+      ? performance.now() / 1000 - audioRef.current.startedAt + 60
+      : Tone.getTransport().seconds + 60;
     updateSettings(patch);
   };
 
-  const mainBeatColumns = settings.beats === 6 ? 3 : settings.beats;
-  const patternColumns =
-    settings.subdivision === 1 ? mainBeatColumns : settings.subdivision === 2 ? 2 : 1;
-  const patternStepColumns =
-    settings.subdivision === 8 ? 4 : settings.subdivision >= 5 ? 3 : settings.subdivision;
-
-  const isIOS =
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const editorBar = settings.bars[editorBarIndex] ?? settings.bars[0];
+  const displayBar = settings.bars[playing ? visual.bar : editorBarIndex] ?? editorBar;
+  const matrixHeight =
+    Math.max(...editorBar.beats.map((beat) => beat.steps.length)) * 48 + 44;
 
   const installApp = async () => {
     if (isIOS || !installPrompt) {
@@ -535,7 +815,7 @@ export default function App() {
               </div>
               <div className="tempo-meta" aria-hidden="true">
                 <span className="beat-count">
-                  {playing ? visual.beat + 1 : "—"} / {settings.beats}
+                  {playing ? visual.beat + 1 : "—"} / {displayBar.beats.length}
                 </span>
                 {settings.trainer && (
                   <span className="trainer-target">→ {settings.targetBpm}</span>
@@ -545,11 +825,12 @@ export default function App() {
           </div>
 
           <div className="beat-dots" aria-hidden="true">
-            {Array.from({ length: settings.beats }, (_, index) => (
+            {displayBar.beats.map((beat, index) => (
               <span
                 key={index}
                 className={[
-                  settings.pattern[index * settings.subdivision] === 2 ? "is-accent" : "",
+                  beat.steps[0] === 2 ? "is-accent" : "",
+                  !beat.enabled ? "is-muted" : "",
                   playing && index === visual.beat ? "is-active" : "",
                 ]
                   .filter(Boolean)
@@ -619,108 +900,170 @@ export default function App() {
             )}
           </div>
 
-          <div className="setting-block">
-            <div className="setting-label">
-              <span>每小节</span>
-            </div>
-            <div className="segmented" aria-label="每小节拍数">
-              {[2, 3, 4, 6].map((beats) => (
-                <button
-                  key={beats}
-                  type="button"
-                  className={settings.beats === beats ? "is-selected" : ""}
-                  aria-pressed={settings.beats === beats}
-                  onClick={() => changeRhythm({ beats })}
-                >
-                  {beats}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="setting-block">
-            <div className="setting-label">
-              <span>细分</span>
-            </div>
-            <div className="subdivision-grid" aria-label="拍内细分">
-              {SUBDIVISIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={settings.subdivision === option.value ? "is-selected" : ""}
-                  aria-pressed={settings.subdivision === option.value}
-                  onClick={() => changeRhythm({ subdivision: option.value })}
-                >
-                  <span>{option.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="setting-block pattern-block">
-            <div className="setting-label pattern-heading">
-              <span>节奏型</span>
-              <div className="pattern-actions">
-                <button
-                  type="button"
-                  onClick={() => updateSettings({ pattern: makePattern(settings.beats, settings.subdivision) })}
-                >
-                  均匀
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateSettings({ pattern: makePattern(settings.beats, settings.subdivision, "main") })
-                  }
-                >
-                  主拍
-                </button>
-              </div>
-            </div>
-            <div className="pattern-scroll">
-              <div
-                className="pattern-beats"
-                style={{
-                  "--beat-columns": patternColumns,
-                }}
+          <div className="setting-block rhythm-block">
+            <div className="rhythm-toolbar">
+              <button
+                className={`matrix-icon-button ${settings.loopBar !== null ? "is-active" : ""}`}
+                type="button"
+                onClick={toggleBarLoop}
+                aria-label={settings.loopBar === null ? "循环当前小节" : "循环全部小节"}
+                aria-pressed={settings.loopBar !== null}
+                title={settings.loopBar === null ? "循环当前小节" : "循环全部小节"}
               >
-                {Array.from({ length: settings.beats }, (_, beat) => (
-                  <div
-                    className="pattern-beat"
-                    key={beat}
-                    style={{
-                      "--steps": settings.subdivision,
-                      "--step-columns": patternStepColumns,
-                    }}
+                <Repeat2 />
+              </button>
+              <div className="bar-pages" role="tablist" aria-label="小节">
+                {settings.bars.map((_, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className={[
+                      index === editorBarIndex ? "is-current" : "",
+                      playing && index === visual.bar ? "is-playing" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => selectBar(index)}
+                    role="tab"
+                    aria-selected={index === editorBarIndex}
+                    aria-label={`第 ${index + 1} 小节`}
                   >
-                    <strong>{beat + 1}</strong>
-                    <div className="pattern-steps">
-                      {Array.from({ length: settings.subdivision }, (_, sub) => {
-                        const index = beat * settings.subdivision + sub;
-                        const step = settings.pattern[index] ?? 0;
-                        const stateName = step === 2 ? "强音" : step === 1 ? "普通" : "静音";
-                        return (
-                          <button
-                            key={sub}
-                            type="button"
-                            className={`pattern-step state-${step}`}
-                            onClick={() => cyclePatternStep(index)}
-                            aria-label={`第 ${beat + 1} 拍第 ${sub + 1} 格：${stateName}`}
-                            title={`${stateName}，点击切换`}
-                          >
-                            <i aria-hidden="true" />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                    <i aria-hidden="true" />
+                  </button>
                 ))}
               </div>
             </div>
-            <div className="pattern-legend" aria-hidden="true">
-              <span className="state-1"><i />普通</span>
-              <span className="state-2"><i />强音</span>
-              <span className="state-0"><i />静音</span>
+
+            <div
+              className="rhythm-matrix"
+              style={{
+                "--matrix-height": `${matrixHeight}px`,
+                "--beat-columns": editorBar.beats.length,
+              }}
+            >
+              <button
+                className="matrix-control bar-control"
+                type="button"
+                onClick={deleteBar}
+                disabled={settings.bars.length === 1}
+                aria-label="删除当前小节"
+                title="删除当前小节"
+              >
+                <Minus />
+              </button>
+
+              <div
+                className={`matrix-body ${editorBar.beats.length > 4 ? "has-many-beats" : ""}`}
+              >
+                <button
+                  className="matrix-control beat-control"
+                  type="button"
+                  onClick={() => resizeBar(-1)}
+                  disabled={editorBar.beats.length === 1}
+                  aria-label="减少一拍"
+                  title="减少一拍"
+                >
+                  <Minus />
+                </button>
+
+                <div className="matrix-columns">
+                  {editorBar.beats.map((beat, beatIndex) => (
+                    <fieldset
+                      className={`rhythm-column ${beat.enabled ? "" : "is-disabled"}`}
+                      key={beatIndex}
+                    >
+                      <legend className="sr-only">第 {beatIndex + 1} 拍</legend>
+                      <button
+                        className="matrix-control subdivision-control"
+                        type="button"
+                        onClick={() => resizeBeat(beatIndex, -1)}
+                        disabled={beat.steps.length === 1}
+                        aria-label={`减少第 ${beatIndex + 1} 拍的细分`}
+                        title="减少细分"
+                      >
+                        <Minus />
+                      </button>
+
+                      <div className="matrix-track">
+                        <div className="matrix-dot-track">
+                          {beat.steps.map((step, sub) => {
+                            const stateName = step === 2 ? "强音" : step === 1 ? "普通" : "静音";
+                            const isTitle = sub === 0;
+                            return (
+                              <RhythmDot
+                                key={sub}
+                                className={[
+                                  "rhythm-dot",
+                                  `state-${step}`,
+                                  isTitle ? "beat-title" : "",
+                                  playing &&
+                                  visual.bar === editorBarIndex &&
+                                  visual.beat === beatIndex &&
+                                  visual.sub === sub
+                                    ? "is-playing"
+                                    : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                                style={{ "--dot-position": `${(sub / beat.steps.length) * 100}%` }}
+                                onPress={
+                                  isTitle
+                                    ? () => toggleBeat(beatIndex)
+                                    : () => toggleStep(beatIndex, sub)
+                                }
+                                onHold={() => toggleStep(beatIndex, sub, true)}
+                                label={
+                                  isTitle
+                                    ? `第 ${beatIndex + 1} 拍：${beat.enabled ? "开启" : "静音"}`
+                                    : `第 ${beatIndex + 1} 拍第 ${sub + 1} 格：${stateName}`
+                                }
+                                title={
+                                  isTitle
+                                    ? "点击开关整拍，长按切换强音"
+                                    : `${stateName}；点击开关，长按切换强音`
+                                }
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <button
+                        className="matrix-control subdivision-control"
+                        type="button"
+                        onClick={() => resizeBeat(beatIndex, 1)}
+                        disabled={beat.steps.length === MAX_SUBDIVISION}
+                        aria-label={`增加第 ${beatIndex + 1} 拍的细分`}
+                        title="增加细分"
+                      >
+                        <Plus />
+                      </button>
+                    </fieldset>
+                  ))}
+                </div>
+
+                <button
+                  className="matrix-control beat-control"
+                  type="button"
+                  onClick={() => resizeBar(1)}
+                  disabled={editorBar.beats.length === MAX_BEATS}
+                  aria-label="复制上一拍"
+                  title="复制上一拍"
+                >
+                  <Plus />
+                </button>
+              </div>
+
+              <button
+                className="matrix-control bar-control"
+                type="button"
+                onClick={duplicateBar}
+                disabled={settings.bars.length === MAX_BARS}
+                aria-label="复制当前小节"
+                title="复制当前小节"
+              >
+                <Plus />
+              </button>
             </div>
           </div>
 
