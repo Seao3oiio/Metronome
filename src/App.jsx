@@ -1029,15 +1029,11 @@ export default function App() {
     );
   };
 
-  const toggleBeat = (beatIndex) => {
-    updateBeat(editorBarIndex, beatIndex, (beat) => ({ ...beat, enabled: !beat.enabled }));
-  };
-
   const toggleStep = (beatIndex, sub, accent = false) => {
     updateBeat(editorBarIndex, beatIndex, (beat) => {
       const steps = [...beat.steps];
       steps[sub] = accent ? (steps[sub] === 2 ? 1 : 2) : steps[sub] === 0 ? 1 : 0;
-      return { ...beat, steps };
+      return { ...beat, enabled: true, steps };
     });
   };
 
@@ -1902,14 +1898,12 @@ export default function App() {
                         <div className="matrix-dot-track">
                           {beat.steps.map((step, sub) => {
                             const stateName = step === 2 ? "强音" : step === 1 ? "普通" : "静音";
-                            const isTitle = sub === 0;
                             return (
                               <RhythmDot
                                 key={sub}
                                 className={[
                                   "rhythm-dot",
                                   `state-${step}`,
-                                  isTitle ? "beat-title" : "",
                                   playing &&
                                   !visual.gap &&
                                   visual.bar === editorBarIndex &&
@@ -1920,23 +1914,13 @@ export default function App() {
                                 ]
                                   .filter(Boolean)
                                   .join(" ")}
-                                style={{ "--dot-position": `${(sub / beat.steps.length) * 100}%` }}
-                                onPress={
-                                  isTitle
-                                    ? () => toggleBeat(beatIndex)
-                                    : () => toggleStep(beatIndex, sub)
-                                }
+                                style={{
+                                  "--dot-position": `${(sub / beat.steps.length) * 100}%`,
+                                }}
+                                onPress={() => toggleStep(beatIndex, sub)}
                                 onHold={() => toggleStep(beatIndex, sub, true)}
-                                label={
-                                  isTitle
-                                    ? `第 ${beatIndex + 1} 拍：${beat.enabled ? "开启" : "静音"}`
-                                    : `第 ${beatIndex + 1} 拍第 ${sub + 1} 格：${stateName}`
-                                }
-                                title={
-                                  isTitle
-                                    ? "点击开关整拍，长按切换强音"
-                                    : `${stateName}；点击开关，长按切换强音`
-                                }
+                                label={`第 ${beatIndex + 1} 拍第 ${sub + 1} 格：${stateName}`}
+                                title={`${stateName}；点击开关，长按切换强音`}
                               />
                             );
                           })}
@@ -2003,7 +1987,6 @@ export default function App() {
                             key={sub}
                             className={[
                               `state-${step}`,
-                              sub === 0 ? "beat-title" : "",
                               playing &&
                               !visual.gap &&
                               visual.bar === barIndex &&

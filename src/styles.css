@@ -1212,13 +1212,6 @@ input[type="range"]::-moz-range-thumb {
   transition: transform 80ms ease, box-shadow 80ms ease;
 }
 
-.bar-preview-beat .beat-title {
-  width: 8px;
-  height: 8px;
-  background: var(--violet-bright);
-  box-shadow: 0 0 6px rgba(139, 123, 255, 0.48);
-}
-
 .bar-preview-beat .state-2 {
   width: 7px;
   height: 7px;
@@ -1227,13 +1220,8 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 6px rgba(255, 188, 103, 0.55);
 }
 
-.bar-preview-beat .beat-title.state-2 {
-  width: 9px;
-  height: 9px;
-}
-
 .bar-preview-beat .state-0,
-.bar-preview-beat.is-disabled .beat-title {
+.bar-preview-beat.is-disabled i {
   width: 5px;
   height: 5px;
   border: 1px dashed rgba(188, 194, 206, 0.72);
@@ -1322,14 +1310,6 @@ input[type="range"]::-moz-range-thumb {
     background 130ms ease, box-shadow 130ms ease, transform 130ms ease;
 }
 
-.rhythm-dot.beat-title i {
-  width: 17px;
-  height: 17px;
-  border-color: var(--violet-bright);
-  background: var(--violet-bright);
-  box-shadow: 0 0 15px rgba(139, 123, 255, 0.48);
-}
-
 .rhythm-dot.state-2 i {
   width: 15px;
   height: 15px;
@@ -1338,13 +1318,8 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 14px rgba(255, 188, 103, 0.55);
 }
 
-.rhythm-dot.beat-title.state-2 i {
-  width: 19px;
-  height: 19px;
-}
-
 .rhythm-dot.state-0 i,
-.rhythm-column.is-disabled .rhythm-dot.beat-title i {
+.rhythm-column.is-disabled .rhythm-dot i {
   width: 10px;
   height: 10px;
   border: 1px dashed rgba(188, 194, 206, 0.72);

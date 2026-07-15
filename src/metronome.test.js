@@ -149,6 +149,22 @@ test("gap click starts with sound and keeps each difficulty inside its ranges", 
 });
 
 test("click tracks are valid looping PCM WAV files", () => {
+  const partialBeat = new Int16Array(
+    makeClickTrackWav(
+      {
+        bpm: 120,
+        bars: [{ beats: [{ enabled: true, steps: [0, 1] }] }],
+        loopBar: null,
+        sound: "click",
+      },
+      8000,
+      1,
+    ),
+    44,
+  );
+  assert.ok(partialBeat.subarray(0, 2000).every((sample) => sample === 0));
+  assert.ok(partialBeat.subarray(2000).some(Boolean));
+
   const wav = makeClickTrackWav(
     { bpm: 120, bars: [makeBar(2, 1)], loopBar: null, sound: "click" },
     8000,
