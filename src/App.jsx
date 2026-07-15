@@ -169,6 +169,7 @@ function RhythmDot({ className, label, title, onPress, onHold, style }) {
       pressedRef.current = false;
       return;
     }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     pressedRef.current = true;
     heldRef.current = false;
     timerRef.current = setTimeout(() => {
@@ -204,7 +205,6 @@ function RhythmDot({ className, label, title, onPress, onHold, style }) {
       onPointerDown={startHold}
       onPointerUp={finishPress}
       onPointerCancel={cancelPress}
-      onPointerLeave={cancelPress}
       onClick={(event) => event.detail === 0 && onPress()}
       onContextMenu={(event) => {
         event.preventDefault();
