@@ -1244,14 +1244,28 @@ export default function App() {
     setStatus(`${indexes.length} 个小节已删除`);
   };
 
-  const selectBar = (index) => {
-    if (selectingBars) {
+  const selectBar = (index, event) => {
+    if (event?.shiftKey) {
+      const anchor = selectingBars ? selectedBarIndexes.at(0) ?? editorBarIndex : editorBarIndex;
+      const start = Math.min(anchor, index);
+      const end = Math.max(anchor, index);
+      const selected = Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
+      setSelectingBars(true);
+      setSelectedBarIndexes(selected);
       setEditorBarIndex(index);
-      setSelectedBarIndexes((selected) =>
-        selected.includes(index)
-          ? selected.filter((selectedIndex) => selectedIndex !== index)
-          : [...selected, index].sort((left, right) => left - right),
-      );
+      setStatus(`已选择 ${selected.length} 个小节`);
+      return;
+    }
+    if (selectingBars || event?.ctrlKey || event?.metaKey) {
+      setSelectingBars(true);
+      setSelectedBarIndexes((selected) => {
+        const current = selectingBars ? selected : [editorBarIndex];
+        return current.includes(index)
+          ? current.filter((selectedIndex) => selectedIndex !== index)
+          : [...current, index].sort((left, right) => left - right);
+      });
+      setEditorBarIndex(index);
+      setStatus("已更新选择");
       return;
     }
     setEditorBarIndex(index);
@@ -1314,15 +1328,19 @@ export default function App() {
 
   const toggleBarLoop = () => {
     if (playbackIntentRef.current) stop("循环已更新");
-    if (settingsRef.current.loopBar !== null) {
-      updateSettings({ loopBar: null });
-      setStatus("循环全部小节");
-      return;
+    const current = normalizeLoopRange(
+      settingsRef.current.loopBar,
+      settingsRef.current.bars.length,
+    );
+    if (selectingBars && activeBarIndexes.length) {
+      const range = [activeBarIndexes[0], activeBarIndexes.at(-1)];
+      const matches = current?.[0] === range[0] && current?.[1] === range[1];
+      updateSettings({ loopBar: matches ? null : range });
+      setStatus(matches ? "循环全部小节" : "循环所选段落");
+    } else {
+      updateSettings({ loopBar: current ? null : [editorBarIndex, editorBarIndex] });
+      setStatus(current ? "循环全部小节" : "循环当前小节");
     }
-    const start = activeBarIndexes.at(0) ?? editorBarIndex;
-    const end = activeBarIndexes.at(-1) ?? editorBarIndex;
-    updateSettings({ loopBar: [start, end] });
-    setStatus(start === end ? "循环当前小节" : "循环所选段落");
   };
 
   const applyQuickRhythm = (patch) => {
@@ -1495,8 +1513,23 @@ export default function App() {
     .sort((left, right) => left - right);
   const activeBarIndexSet = new Set(activeBarIndexes);
   const loopRange = normalizeLoopRange(settings.loopBar, settings.bars.length);
-  const loopActionLabel =
-    loopRange === null && activeBarIndexes.length > 1 ? "循环所选段落" : "循环当前小节";
+  const selectedLoopRange =
+    selectingBars && activeBarIndexes.length
+      ? [activeBarIndexes[0], activeBarIndexes.at(-1)]
+      : null;
+  const selectedLoopMatches =
+    selectedLoopRange &&
+    loopRange?.[0] === selectedLoopRange[0] &&
+    loopRange?.[1] === selectedLoopRange[1];
+  const loopActionLabel = selectedLoopRange
+    ? selectedLoopMatches
+      ? "循环全部小节"
+      : activeBarIndexes.length > 1
+        ? "循环所选段落"
+        : "循环所选小节"
+    : loopRange
+      ? "循环全部小节"
+      : "循环当前小节";
   const canMoveBarsLeft = activeBarIndexes.some(
     (index) => index > 0 && !activeBarIndexSet.has(index - 1),
   );
@@ -1517,6 +1550,47 @@ export default function App() {
     Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
       48 +
     44;
+
+  useEffect(() => {
+    const handleEditorShortcut = (event) => {
+      if (!advancedRhythm || event.target.closest?.("input, textarea, select, [contenteditable='true']")) {
+        return;
+      }
+      const command = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+
+      if (command && key === "c") {
+        event.preventDefault();
+        copyBars();
+      } else if (command && key === "v" && barClipboard.length) {
+        event.preventDefault();
+        pasteBars();
+      } else if (command && key === "z" && event.shiftKey && historyDepth.redo) {
+        event.preventDefault();
+        travelHistory("redo");
+      } else if (command && key === "z" && historyDepth.undo) {
+        event.preventDefault();
+        travelHistory("undo");
+      } else if (command && key === "y" && historyDepth.redo) {
+        event.preventDefault();
+        travelHistory("redo");
+      } else if (command && key === "a") {
+        event.preventDefault();
+        setSelectingBars(true);
+        setSelectedBarIndexes(settings.bars.map((_, index) => index));
+        setStatus(`已选择 ${settings.bars.length} 个小节`);
+      } else if (event.key === "Escape" && selectingBars) {
+        setSelectingBars(false);
+        setSelectedBarIndexes([]);
+        setStatus("已退出多选");
+      } else if (event.key === "Delete" && settings.bars.length > 1) {
+        event.preventDefault();
+        deleteBars(activeBarIndexes);
+      }
+    };
+    window.addEventListener("keydown", handleEditorShortcut);
+    return () => window.removeEventListener("keydown", handleEditorShortcut);
+  });
 
   const installApp = async () => {
     if (isIOS || !installPrompt) {
@@ -1953,9 +2027,9 @@ export default function App() {
                 className={`matrix-icon-button ${settings.loopBar !== null ? "is-active" : ""}`}
                 type="button"
                 onClick={toggleBarLoop}
-                aria-label={settings.loopBar === null ? loopActionLabel : "循环全部小节"}
+                aria-label={loopActionLabel}
                 aria-pressed={settings.loopBar !== null}
-                title={settings.loopBar === null ? loopActionLabel : "循环全部小节"}
+                title={loopActionLabel}
               >
                 <Repeat2 />
               </button>
@@ -1979,7 +2053,7 @@ export default function App() {
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    onClick={() => selectBar(index)}
+                    onClick={(event) => selectBar(index, event)}
                     role="tab"
                     aria-selected={
                       selectingBars ? selectedBarIndexes.includes(index) : index === editorBarIndex
@@ -2210,7 +2284,7 @@ export default function App() {
                     .filter(Boolean)
                     .join(" ")}
                   type="button"
-                  onClick={() => selectBar(barIndex)}
+                  onClick={(event) => selectBar(barIndex, event)}
                   aria-label={`第 ${barIndex + 1} 小节预览`}
                 >
                   <span
