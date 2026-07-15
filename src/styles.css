@@ -408,11 +408,6 @@ select:focus-visible {
   border-color: rgba(255, 188, 103, 0.42);
 }
 
-.beat-dots .is-muted {
-  background: transparent;
-  opacity: 0.38;
-}
-
 .beat-dots .is-active {
   width: 18px;
   background: var(--violet-bright);
@@ -772,10 +767,6 @@ input[type="range"]::-moz-range-thumb {
   color: var(--amber);
 }
 
-.beat-state-grid button.is-muted {
-  color: var(--muted);
-}
-
 .beat-state-grid button.is-playing {
   border-color: rgba(116, 228, 208, 0.55);
   box-shadow: 0 0 0 3px rgba(116, 228, 208, 0.11), 0 0 18px rgba(116, 228, 208, 0.25);
@@ -784,16 +775,6 @@ input[type="range"]::-moz-range-thumb {
 .beat-state-grid button:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-.beat-state-grid .is-muted .note-head {
-  fill: transparent;
-  stroke-dasharray: 2 2;
-}
-
-.beat-state-grid .is-muted .note-stem,
-.beat-state-grid .is-muted .note-flag {
-  stroke-dasharray: 3 3;
 }
 
 .rhythm-preset-grid {
@@ -1139,6 +1120,16 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 13px rgba(116, 228, 208, 0.8);
 }
 
+.bar-pages .is-looped i {
+  box-shadow: 0 0 0 3px rgba(255, 188, 103, 0.24);
+}
+
+.bar-pages .is-playing.is-looped i {
+  box-shadow:
+    0 0 0 3px rgba(255, 188, 103, 0.24),
+    0 0 13px rgba(116, 228, 208, 0.8);
+}
+
 .bar-pages .is-selected i {
   background: var(--cyan);
   box-shadow: 0 0 0 4px rgba(116, 228, 208, 0.16);
@@ -1178,6 +1169,10 @@ input[type="range"]::-moz-range-thumb {
 .bar-preview.is-current {
   border-color: rgba(139, 123, 255, 0.55);
   background: rgba(139, 123, 255, 0.08);
+}
+
+.bar-preview.is-looped {
+  box-shadow: inset 0 0 0 1px rgba(255, 188, 103, 0.48);
 }
 
 .bar-preview.is-selected {
@@ -1220,8 +1215,7 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 6px rgba(255, 188, 103, 0.55);
 }
 
-.bar-preview-beat .state-0,
-.bar-preview-beat.is-disabled i {
+.bar-preview-beat .state-0 {
   width: 5px;
   height: 5px;
   border: 1px dashed rgba(188, 194, 206, 0.72);
@@ -1318,8 +1312,7 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 14px rgba(255, 188, 103, 0.55);
 }
 
-.rhythm-dot.state-0 i,
-.rhythm-column.is-disabled .rhythm-dot i {
+.rhythm-dot.state-0 i {
   width: 10px;
   height: 10px;
   border: 1px dashed rgba(188, 194, 206, 0.72);
@@ -1810,6 +1803,39 @@ footer {
 
 .rhythm-code-actions svg {
   width: 17px;
+}
+
+.copy-toast {
+  position: fixed;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 40;
+  display: inline-flex;
+  min-height: 46px;
+  gap: 9px;
+  align-items: center;
+  padding: 0 17px;
+  border: 1px solid rgba(116, 228, 208, 0.28);
+  border-radius: 14px;
+  background: rgba(18, 21, 29, 0.94);
+  color: var(--cyan);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.42);
+  font-weight: 700;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: copy-toast-in 180ms ease-out;
+  backdrop-filter: blur(18px);
+}
+
+.copy-toast svg {
+  width: 17px;
+}
+
+@keyframes copy-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.96);
+  }
 }
 
 @keyframes beat-pulse {

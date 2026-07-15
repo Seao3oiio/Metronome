@@ -25,7 +25,6 @@ import {
   BEAT_UNITS,
   BPM_MAX,
   BPM_MIN,
-  MAX_BARS,
   MAX_BEATS,
   MAX_SUBDIVISION,
   advanceMinuteDeadline,
@@ -41,10 +40,12 @@ import {
   makeBar,
   moveBarSelection,
   normalizeBars,
+  normalizeLoopRange,
   nextTrainingBpm,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   tempoName,
+  toggleBeatStep,
 } from "./metronome.js";
 import {
   FLAG_GLYPHS,
@@ -87,7 +88,7 @@ const SOUND_NOTES = {
 };
 
 const DEFAULT_SETTINGS = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   bpm: 96,
   beatUnit: 4,
   bars: null,
@@ -117,14 +118,11 @@ function loadSettings() {
 
     const bars = normalizeBars(saved.bars);
     if (!bars) return defaults;
-    const loopBar =
-      Number.isInteger(saved.loopBar) && saved.loopBar >= 0 && saved.loopBar < bars.length
-        ? saved.loopBar
-        : null;
+    const loopBar = normalizeLoopRange(saved.loopBar, bars.length);
 
     return {
       ...defaults,
-      schemaVersion: 2,
+      schemaVersion: 3,
       bpm: clampBpm(saved.bpm ?? defaults.bpm),
       beatUnit: BEAT_UNITS.includes(saved.beatUnit) ? saved.beatUnit : defaults.beatUnit,
       bars,
@@ -184,6 +182,40 @@ function cloneBeat(beat) {
 
 function cloneBar(bar) {
   return { beats: bar.beats.map(cloneBeat) };
+}
+
+function loopStart(range) {
+  return range?.[0] ?? 0;
+}
+
+function insertLoopRange(range, index, count) {
+  if (!range) return null;
+  const [start, end] = range;
+  if (index <= start) return [start + count, end + count];
+  if (index <= end + 1) return [start, end + count];
+  return range;
+}
+
+function deleteLoopIndex(range, index, remaining) {
+  if (!range) return null;
+  const [start, end] = range;
+  if (index < start) return [start - 1, end - 1];
+  if (index > end) return range;
+  if (start < end) return [start, end - 1];
+  const next = Math.min(index, remaining - 1);
+  return [next, next];
+}
+
+function remapLoopRange(range, order) {
+  if (!range) return null;
+  const indexes = Array.from(
+    { length: range[1] - range[0] + 1 },
+    (_, offset) => order.indexOf(range[0] + offset),
+  ).sort((left, right) => left - right);
+  const stillContiguous = indexes.every(
+    (index, position) => position === 0 || index === indexes[position - 1] + 1,
+  );
+  return stillContiguous ? [indexes[0], indexes.at(-1)] : range;
 }
 
 function plainSteps(beat) {
@@ -392,7 +424,8 @@ function isIOSDevice() {
 
 function makeActiveGapPattern(settings) {
   if (!settings.gapClick || window.location.hash !== "#rhythm") return [];
-  const barCount = settings.loopBar === null ? settings.bars.length : 1;
+  const range = normalizeLoopRange(settings.loopBar, settings.bars.length);
+  const barCount = range ? range[1] - range[0] + 1 : settings.bars.length;
   return makeGapPattern(settings.gapDifficulty, barCount);
 }
 
@@ -511,10 +544,11 @@ export default function App() {
     hit: false,
     gap: false,
   });
-  const [editorBarIndex, setEditorBarIndex] = useState(() => settings.loopBar ?? 0);
+  const [editorBarIndex, setEditorBarIndex] = useState(() => loopStart(settings.loopBar));
   const [selectingBars, setSelectingBars] = useState(false);
   const [selectedBarIndexes, setSelectedBarIndexes] = useState([]);
   const [barClipboard, setBarClipboard] = useState([]);
+  const [toast, setToast] = useState(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showRhythmCode, setShowRhythmCode] = useState(false);
@@ -698,7 +732,7 @@ export default function App() {
               beat: event.beat,
               sub: event.sub,
               pulse: performance.now(),
-              hit: !gapMuted && beatData?.enabled && step > 0,
+              hit: !gapMuted && step > 0,
               gap: gapMuted,
             });
             mediaAudio.lastEvent = eventIndex;
@@ -768,7 +802,7 @@ export default function App() {
           }
         }
 
-        if (!eventGapMuted && beatData?.enabled && step > 0) {
+        if (!eventGapMuted && step > 0) {
           const note = SOUND_NOTES[current.sound];
           const frequency = step === 2 ? note.accent : note.normal;
           const velocity = step === 2 ? 1 : 0.74;
@@ -782,7 +816,7 @@ export default function App() {
             beat: event.beat,
             sub: event.sub,
             pulse: performance.now(),
-            hit: Boolean(!eventGapMuted && beatData?.enabled && step > 0),
+            hit: Boolean(!eventGapMuted && step > 0),
             gap: eventGapMuted,
           });
         }, time);
@@ -997,6 +1031,12 @@ export default function App() {
     else if (!showRhythmCode && dialog.open) dialog.close();
   }, [showRhythmCode]);
 
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => setToast(null), 1800);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   const updateBeat = (barIndex, beatIndex, updater, structural = false) => {
     if (structural && playbackIntentRef.current) stop("节奏已更新");
     const bars = settingsRef.current.bars.map((bar, currentBar) =>
@@ -1030,11 +1070,7 @@ export default function App() {
   };
 
   const toggleStep = (beatIndex, sub, accent = false) => {
-    updateBeat(editorBarIndex, beatIndex, (beat) => {
-      const steps = [...beat.steps];
-      steps[sub] = accent ? (steps[sub] === 2 ? 1 : 2) : steps[sub] === 0 ? 1 : 0;
-      return { ...beat, enabled: true, steps };
-    });
+    updateBeat(editorBarIndex, beatIndex, (beat) => toggleBeatStep(beat, sub, accent));
   };
 
   const resizeBar = (amount) => {
@@ -1055,14 +1091,13 @@ export default function App() {
 
   const duplicateBar = () => {
     const current = settingsRef.current;
-    if (current.bars.length === MAX_BARS) return;
     if (playbackIntentRef.current) stop("节奏已更新");
     const bars = [...current.bars];
     const nextIndex = editorBarIndex + 1;
     bars.splice(nextIndex, 0, cloneBar(bars[editorBarIndex]));
     setSelectingBars(false);
     setEditorBarIndex(nextIndex);
-    updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
+    updateSettings({ bars, loopBar: insertLoopRange(current.loopBar, nextIndex, 1) });
   };
 
   const deleteBar = () => {
@@ -1073,7 +1108,10 @@ export default function App() {
     const nextIndex = Math.min(editorBarIndex, bars.length - 1);
     setSelectingBars(false);
     setEditorBarIndex(nextIndex);
-    updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
+    updateSettings({
+      bars,
+      loopBar: deleteLoopIndex(current.loopBar, editorBarIndex, bars.length),
+    });
   };
 
   const selectBar = (index) => {
@@ -1085,11 +1123,6 @@ export default function App() {
           : [...selected, index].sort((left, right) => left - right),
       );
       return;
-    }
-    const current = settingsRef.current;
-    if (current.loopBar !== null && current.loopBar !== index) {
-      if (playbackIntentRef.current) stop("循环已更新");
-      updateSettings({ loopBar: index });
     }
     setEditorBarIndex(index);
   };
@@ -1109,15 +1142,12 @@ export default function App() {
     setSelectedBarIndexes([]);
     setSelectingBars(false);
     setStatus(`${activeBarIndexes.length} 个小节已复制，选择位置后粘贴`);
+    setToast({ id: Date.now(), message: `${activeBarIndexes.length} 个小节已复制` });
   };
 
   const pasteBars = () => {
     const current = settingsRef.current;
     if (!barClipboard.length) return;
-    if (current.bars.length + barClipboard.length > MAX_BARS) {
-      setStatus(`最多 ${MAX_BARS} 个小节，无法完整粘贴`);
-      return;
-    }
     const pasted = barClipboard.map(cloneBar);
     if (playbackIntentRef.current) stop("节奏已更新");
     const insertAt = Math.min((activeBarIndexes.at(-1) ?? editorBarIndex) + 1, current.bars.length);
@@ -1127,7 +1157,10 @@ export default function App() {
     setEditorBarIndex(nextIndex);
     setSelectedBarIndexes([]);
     setSelectingBars(false);
-    updateSettings({ bars, loopBar: current.loopBar === null ? null : nextIndex });
+    updateSettings({
+      bars,
+      loopBar: insertLoopRange(current.loopBar, insertAt, pasted.length),
+    });
     setStatus(`${pasted.length} 个小节已粘贴`);
   };
 
@@ -1144,15 +1177,22 @@ export default function App() {
     );
     updateSettings({
       bars: moved.bars,
-      loopBar:
-        current.loopBar === null ? null : moved.order.indexOf(current.loopBar),
+      loopBar: remapLoopRange(current.loopBar, moved.order),
     });
     setStatus("小节已排序");
   };
 
   const toggleBarLoop = () => {
     if (playbackIntentRef.current) stop("循环已更新");
-    updateSettings({ loopBar: settingsRef.current.loopBar === null ? editorBarIndex : null });
+    if (settingsRef.current.loopBar !== null) {
+      updateSettings({ loopBar: null });
+      setStatus("循环全部小节");
+      return;
+    }
+    const start = activeBarIndexes.at(0) ?? editorBarIndex;
+    const end = activeBarIndexes.at(-1) ?? editorBarIndex;
+    updateSettings({ loopBar: [start, end] });
+    setStatus(start === end ? "循环当前小节" : "循环所选段落");
   };
 
   const applyQuickRhythm = (patch) => {
@@ -1198,11 +1238,13 @@ export default function App() {
   const exportRhythm = async () => {
     const code = encodeRhythm(settingsRef.current);
     setRhythmCode(code);
-    setShowRhythmCode(true);
     try {
       await navigator.clipboard.writeText(code);
       setStatus("节奏编码已复制");
+      setShowRhythmCode(false);
+      setToast({ id: Date.now(), message: "节奏编码已复制" });
     } catch {
+      setShowRhythmCode(true);
       setStatus("请手动复制编码");
     }
   };
@@ -1211,7 +1253,7 @@ export default function App() {
     try {
       const rhythm = decodeRhythm(rhythmCode);
       if (playbackIntentRef.current) stop("节奏已导入");
-      setEditorBarIndex(rhythm.loopBar ?? 0);
+      setEditorBarIndex(loopStart(rhythm.loopBar));
       setBpmDraft(String(rhythm.bpm));
       setSelectedRhythmId("");
       setRhythmName("");
@@ -1272,7 +1314,7 @@ export default function App() {
     try {
       const rhythm = decodeRhythm(saved.code);
       if (playbackIntentRef.current) stop("节奏已切换");
-      setEditorBarIndex(rhythm.loopBar ?? 0);
+      setEditorBarIndex(loopStart(rhythm.loopBar));
       setBpmDraft(String(rhythm.bpm));
       setRhythmName(saved.name);
       updateSettings({ ...rhythm, startBpm: rhythm.bpm });
@@ -1306,6 +1348,9 @@ export default function App() {
     .filter((index) => index >= 0 && index < settings.bars.length)
     .sort((left, right) => left - right);
   const activeBarIndexSet = new Set(activeBarIndexes);
+  const loopRange = normalizeLoopRange(settings.loopBar, settings.bars.length);
+  const loopActionLabel =
+    loopRange === null && activeBarIndexes.length > 1 ? "循环所选段落" : "循环当前小节";
   const canMoveBarsLeft = activeBarIndexes.some(
     (index) => index > 0 && !activeBarIndexSet.has(index - 1),
   );
@@ -1323,7 +1368,9 @@ export default function App() {
     ? QUICK_PATTERNS.find(({ steps }) => JSON.stringify(steps) === JSON.stringify(quickSteps))?.id
     : "";
   const matrixHeight =
-    Math.max(...editorBar.beats.map((beat) => beat.steps.length)) * 48 + 44;
+    Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
+      48 +
+    44;
 
   const installApp = async () => {
     if (isIOS || !installPrompt) {
@@ -1428,7 +1475,6 @@ export default function App() {
                 key={index}
                 className={[
                   beat.steps[0] === 2 ? "is-accent" : "",
-                  !beat.enabled ? "is-muted" : "",
                   playing && !visual.gap && index === visual.beat ? "is-active" : "",
                 ]
                   .filter(Boolean)
@@ -1577,16 +1623,12 @@ export default function App() {
                 <div
                   className={`beat-state-grid ${quickBar.beats.length > 4 ? "has-many-beats" : ""}`}
                   role="group"
-                  aria-label="每拍重音和静音"
+                  aria-label="每拍重音"
                   style={{ "--quick-beats": quickBar.beats.length }}
                 >
                   {quickBar.beats.map((beat, index) => {
-                    const state = !beat.enabled
-                      ? "muted"
-                      : beat.steps.includes(2)
-                        ? "accent"
-                        : "normal";
-                    const stateLabel = { normal: "普通", accent: "重音", muted: "静音" }[state];
+                    const state = beat.steps.includes(2) ? "accent" : "normal";
+                    const stateLabel = { normal: "普通", accent: "重音" }[state];
                     return (
                       <button
                         key={index}
@@ -1746,9 +1788,9 @@ export default function App() {
                 className={`matrix-icon-button ${settings.loopBar !== null ? "is-active" : ""}`}
                 type="button"
                 onClick={toggleBarLoop}
-                aria-label={settings.loopBar === null ? "循环当前小节" : "循环全部小节"}
+                aria-label={settings.loopBar === null ? loopActionLabel : "循环全部小节"}
                 aria-pressed={settings.loopBar !== null}
-                title={settings.loopBar === null ? "循环当前小节" : "循环全部小节"}
+                title={settings.loopBar === null ? loopActionLabel : "循环全部小节"}
               >
                 <Repeat2 />
               </button>
@@ -1764,6 +1806,9 @@ export default function App() {
                     type="button"
                     className={[
                       index === editorBarIndex ? "is-current" : "",
+                      loopRange && index >= loopRange[0] && index <= loopRange[1]
+                        ? "is-looped"
+                        : "",
                       selectingBars && selectedBarIndexes.includes(index) ? "is-selected" : "",
                       playing && !visual.gap && index === visual.bar ? "is-playing" : "",
                     ]
@@ -1794,7 +1839,6 @@ export default function App() {
                 className="matrix-control"
                 type="button"
                 onClick={duplicateBar}
-                disabled={settings.bars.length === MAX_BARS}
                 aria-label="复制当前小节"
                 title="复制当前小节"
               >
@@ -1879,7 +1923,7 @@ export default function App() {
                 <div className="matrix-columns">
                   {editorBar.beats.map((beat, beatIndex) => (
                     <fieldset
-                      className={`rhythm-column ${beat.enabled ? "" : "is-disabled"}`}
+                      className="rhythm-column"
                       key={beatIndex}
                     >
                       <legend className="sr-only">第 {beatIndex + 1} 拍</legend>
@@ -1962,6 +2006,9 @@ export default function App() {
                   className={[
                     "bar-preview",
                     barIndex === editorBarIndex ? "is-current" : "",
+                    loopRange && barIndex >= loopRange[0] && barIndex <= loopRange[1]
+                      ? "is-looped"
+                      : "",
                     selectingBars && selectedBarIndexes.includes(barIndex) ? "is-selected" : "",
                     playing && !visual.gap && visual.bar === barIndex ? "is-playing" : "",
                   ]
@@ -1979,7 +2026,7 @@ export default function App() {
                     {bar.beats.map((beat, beatIndex) => (
                       <span
                         key={beatIndex}
-                        className={`bar-preview-beat ${beat.enabled ? "" : "is-disabled"}`}
+                        className="bar-preview-beat"
                         style={{ "--preview-steps": beat.steps.length }}
                       >
                         {beat.steps.map((step, sub) => (
@@ -2156,6 +2203,12 @@ export default function App() {
           </div>
         </aside>
       </main>
+      {toast && (
+        <div className="copy-toast" key={toast.id} role="status" aria-live="polite">
+          <Copy aria-hidden="true" />
+          <span>{toast.message}</span>
+        </div>
+      )}
       <dialog
         ref={rhythmDialogRef}
         className="install-dialog rhythm-code-dialog"
@@ -2179,7 +2232,6 @@ export default function App() {
           onChange={(event) => setRhythmCode(event.target.value.trim())}
           placeholder="粘贴节奏编码"
           aria-label="节奏编码"
-          maxLength={12000}
           autoFocus
           spellCheck="false"
         />
@@ -2190,6 +2242,8 @@ export default function App() {
               try {
                 await navigator.clipboard.writeText(rhythmCode);
                 setStatus("节奏编码已复制");
+                setShowRhythmCode(false);
+                setToast({ id: Date.now(), message: "节奏编码已复制" });
               } catch {
                 setStatus("请手动复制编码");
               }

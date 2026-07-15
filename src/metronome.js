@@ -1,6 +1,5 @@
 export const BPM_MIN = 30;
 export const BPM_MAX = 240;
-export const MAX_BARS = 16;
 export const MAX_BEATS = 6;
 export const MAX_SUBDIVISION = 12;
 export const BEAT_UNITS = [2, 4, 8, 16];
@@ -44,10 +43,7 @@ export function makeBeat(subdivision = 1, accent = false) {
   const length = Number.isFinite(requested)
     ? Math.min(MAX_SUBDIVISION, Math.max(1, Math.round(requested)))
     : 1;
-  return {
-    enabled: true,
-    steps: Array.from({ length }, (_, index) => (index === 0 && accent ? 2 : 1)),
-  };
+  return { steps: Array.from({ length }, (_, index) => (index === 0 && accent ? 2 : 1)) };
 }
 
 export function makeBar(beats = 4, subdivision = 1) {
@@ -68,17 +64,24 @@ export function applyBeatPattern(beats, pattern, count = beats.length) {
     const accent = previous ? previous.steps.includes(2) : index === 0;
     const firstSound = steps.findIndex(Boolean);
     if (accent && firstSound >= 0) steps[firstSound] = 2;
-    return { enabled: previous?.enabled !== false, steps };
+    return { steps };
   });
 }
 
 export function cycleBeatState(beat) {
+  const accented = beat.steps.includes(2);
   const steps = beat.steps.map((step) => (step === 2 ? 1 : step));
-  if (!beat.enabled) return { enabled: true, steps };
-  if (beat.steps.includes(2)) return { enabled: false, steps };
-  const firstSound = steps.findIndex(Boolean);
-  if (firstSound >= 0) steps[firstSound] = 2;
-  return { enabled: true, steps };
+  if (!accented) {
+    const firstSound = steps.findIndex(Boolean);
+    if (firstSound >= 0) steps[firstSound] = 2;
+  }
+  return { steps };
+}
+
+export function toggleBeatStep(beat, index, accent = false) {
+  const steps = [...beat.steps];
+  steps[index] = accent ? (steps[index] === 2 ? 1 : 2) : steps[index] === 0 ? 1 : 0;
+  return { steps };
 }
 
 export function moveBarSelection(bars, selectedIndexes, direction) {
@@ -108,7 +111,7 @@ export function moveBarSelection(bars, selectedIndexes, direction) {
 export function normalizeBars(value) {
   if (!Array.isArray(value)) return null;
 
-  const bars = value.slice(0, MAX_BARS).flatMap((rawBar, barIndex) => {
+  const bars = value.flatMap((rawBar, barIndex) => {
     const rawBeats = Array.isArray(rawBar?.beats)
       ? rawBar.beats
       : Array.isArray(rawBar)
@@ -123,7 +126,7 @@ export function normalizeBars(value) {
         steps.length <= MAX_SUBDIVISION &&
         steps.every((step) => [0, 1, 2].includes(step));
       return validSteps
-        ? { enabled: rawBeat.enabled !== false, steps: [...steps] }
+        ? { steps: rawBeat.enabled === false ? steps.map(() => 0) : [...steps] }
         : makeBeat(
             Number(rawBeat?.subdivision) || 1,
             barIndex === 0 && beatIndex === 0,
@@ -136,8 +139,23 @@ export function normalizeBars(value) {
   return bars.length ? bars : null;
 }
 
+export function normalizeLoopRange(value, barCount) {
+  if (value === null || value === undefined) return null;
+  const range = Number.isInteger(value) ? [value, value] : value;
+  if (
+    !Array.isArray(range) ||
+    range.length !== 2 ||
+    !range.every(Number.isInteger)
+  ) {
+    return null;
+  }
+  const start = Math.min(...range);
+  const end = Math.max(...range);
+  return start >= 0 && end < barCount ? [start, end] : null;
+}
+
 export function encodeRhythm({ bpm, beatUnit = 4, bars, loopBar }) {
-  return btoa(JSON.stringify({ v: 2, bpm, beatUnit, bars, loopBar }))
+  return btoa(JSON.stringify({ v: 3, bpm, beatUnit, bars, loopBar }))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
@@ -145,27 +163,25 @@ export function encodeRhythm({ bpm, beatUnit = 4, bars, loopBar }) {
 
 export function decodeRhythm(code) {
   const value = String(code).trim();
-  if (value.length > 12000 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new Error("Invalid rhythm code");
   }
   const payload = JSON.parse(
     atob(value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=")),
   );
   const bars = normalizeBars(payload.bars);
-  const validLoop =
-    payload.loopBar === null ||
-    (Number.isInteger(payload.loopBar) && payload.loopBar >= 0 && payload.loopBar < bars?.length);
+  const loopBar = normalizeLoopRange(payload.loopBar, bars?.length ?? 0);
   if (
-    payload.v !== 2 ||
+    payload.v !== 3 ||
     clampBpm(payload.bpm) !== payload.bpm ||
     !BEAT_UNITS.includes(payload.beatUnit) ||
     !bars ||
     JSON.stringify(bars) !== JSON.stringify(payload.bars) ||
-    !validLoop
+    (payload.loopBar !== null && !loopBar)
   ) {
     throw new Error("Invalid rhythm code");
   }
-  return { bpm: payload.bpm, beatUnit: payload.beatUnit, bars, loopBar: payload.loopBar };
+  return { bpm: payload.bpm, beatUnit: payload.beatUnit, bars, loopBar };
 }
 
 export function rhythmDefaultName({ bpm, beatUnit = 4, bars }) {
@@ -191,7 +207,7 @@ export function rhythmDefaultName({ bpm, beatUnit = 4, bars }) {
 
 export function makeGapPattern(difficulty = "medium", barCount = 1, random = Math.random) {
   const ranges = GAP_RANGES[difficulty] ?? GAP_RANGES.medium;
-  const rhythmBars = Math.min(MAX_BARS, Math.max(1, Math.round(Number(barCount) || 1)));
+  const rhythmBars = Math.max(1, Math.round(Number(barCount) || 1));
   const target = rhythmBars * Math.ceil(16 / rhythmBars);
   const options = [];
   for (let sound = ranges.sound[0]; sound <= ranges.sound[1]; sound += 1) {
@@ -200,30 +216,41 @@ export function makeGapPattern(difficulty = "medium", barCount = 1, random = Mat
     }
   }
 
-  const fill = (remaining, first = false) => {
-    const shuffled = options
+  const shuffledOptions = () =>
+    options
       .map((option) => ({ option, order: random() }))
-      .sort((left, right) => left.order - right.order);
-    for (const { option } of shuffled) {
-      const size = option.sound + option.mute;
-      if ((first && option.sound < 2) || size > remaining) continue;
-      if (size === remaining) return [option];
-      const rest = fill(remaining - size);
-      if (rest) return [option, ...rest];
-    }
-    return null;
-  };
+      .sort((left, right) => left.order - right.order)
+      .map(({ option }) => option);
+  const stack = [{ remaining: target, first: true, options: shuffledOptions(), cursor: 0 }];
+  const chunks = [];
 
-  return fill(target, true).flatMap(({ sound, mute }) => [
+  while (stack.length) {
+    const frame = stack.at(-1);
+    if (frame.cursor === frame.options.length) {
+      stack.pop();
+      if (stack.length) chunks.pop();
+      continue;
+    }
+
+    const option = frame.options[frame.cursor++];
+    const remaining = frame.remaining - option.sound - option.mute;
+    if (remaining < 0 || (frame.first && option.sound < 2)) continue;
+    chunks.push(option);
+    if (remaining === 0) break;
+    stack.push({ remaining, first: false, options: shuffledOptions(), cursor: 0 });
+  }
+
+  return chunks.flatMap(({ sound, mute }) => [
     ...Array(sound).fill(false),
     ...Array(mute).fill(true),
   ]);
 }
 
 export function compileRhythm(bars, loopBar, ppq, gapPattern = []) {
-  const selectedBars = Number.isInteger(loopBar)
-    ? bars.slice(loopBar, loopBar + 1).map((bar) => [bar, loopBar])
-    : bars.map((bar, index) => [bar, index]);
+  const range = normalizeLoopRange(loopBar, bars.length) ?? [0, bars.length - 1];
+  const selectedBars = bars
+    .slice(range[0], range[1] + 1)
+    .map((bar, index) => [bar, range[0] + index]);
   const scheduledBars = gapPattern.length
     ? gapPattern.map((gap, index) => [...selectedBars[index % selectedBars.length], gap])
     : selectedBars.map((bar) => [...bar, false]);
@@ -284,7 +311,7 @@ export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapP
       if (event.gap) continue;
       const beat = bars[event.bar]?.beats[event.beat];
       const step = beat?.steps[event.sub] ?? 0;
-      if (!beat?.enabled || !step) continue;
+      if (!step) continue;
 
       const frequency = step === 2 ? note.accent : note.normal;
       const velocity = step === 2 ? 1 : 0.74;

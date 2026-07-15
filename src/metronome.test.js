@@ -15,10 +15,12 @@ import {
   makeBar,
   moveBarSelection,
   normalizeBars,
+  normalizeLoopRange,
   nextTrainingBpm,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   tempoName,
+  toggleBeatStep,
 } from "./metronome.js";
 
 test("notation glyphs cover every supported note value", () => {
@@ -37,13 +39,16 @@ test("tempo helpers keep practice input inside the supported range", () => {
 test("rhythm data and tempo training stay predictable", () => {
   assert.deepEqual(makeBar(2, 2), {
     beats: [
-      { enabled: true, steps: [2, 1] },
-      { enabled: true, steps: [1, 1] },
+      { steps: [2, 1] },
+      { steps: [1, 1] },
     ],
   });
   assert.deepEqual(normalizeBars([{ beats: [{ enabled: false, steps: [0, 2] }] }]), [
-    { beats: [{ enabled: false, steps: [0, 2] }] },
+    { beats: [{ steps: [0, 0] }] },
   ]);
+  assert.equal(normalizeBars(Array.from({ length: 80 }, () => makeBar(1))).length, 80);
+  assert.deepEqual(normalizeLoopRange([4, 2], 6), [2, 4]);
+  assert.equal(normalizeLoopRange([2, 6], 6), null);
   assert.equal(nextTrainingBpm(100, 105, 3), 103);
   assert.equal(nextTrainingBpm(103, 105, 3), 105);
   assert.equal(nextTrainingBpm(120, 100, 7), 113);
@@ -51,15 +56,15 @@ test("rhythm data and tempo training stay predictable", () => {
   assert.equal(advanceMinuteDeadline(60, 60), 120);
   assert.equal(advanceMinuteDeadline(185, 60), 240);
 
-  const accent = cycleBeatState({ enabled: true, steps: [0, 1] });
-  const muted = cycleBeatState(accent);
-  assert.deepEqual(accent, { enabled: true, steps: [0, 2] });
-  assert.deepEqual(muted, { enabled: false, steps: [0, 1] });
-  assert.deepEqual(cycleBeatState(muted), { enabled: true, steps: [0, 1] });
-  assert.deepEqual(applyBeatPattern([accent, muted], [1, 1, 1], 3), [
-    { enabled: true, steps: [2, 1, 1] },
-    { enabled: false, steps: [1, 1, 1] },
-    { enabled: true, steps: [1, 1, 1] },
+  const accent = cycleBeatState({ steps: [0, 1] });
+  const normal = cycleBeatState(accent);
+  assert.deepEqual(accent, { steps: [0, 2] });
+  assert.deepEqual(normal, { steps: [0, 1] });
+  assert.deepEqual(toggleBeatStep({ steps: [0, 0] }, 1), { steps: [0, 1] });
+  assert.deepEqual(applyBeatPattern([accent, normal], [1, 1, 1], 3), [
+    { steps: [2, 1, 1] },
+    { steps: [1, 1, 1] },
+    { steps: [1, 1, 1] },
   ]);
 });
 
@@ -78,8 +83,8 @@ test("mixed subdivisions return to exact beat and bar boundaries", () => {
   const bars = [
     {
       beats: [
-        { enabled: true, steps: Array(7).fill(1) },
-        { enabled: true, steps: Array(11).fill(1) },
+        { steps: Array(7).fill(1) },
+        { steps: Array(11).fill(1) },
       ],
     },
     makeBar(3, 1),
@@ -91,13 +96,28 @@ test("mixed subdivisions return to exact beat and bar boundaries", () => {
   assert.equal(secondBeat.ticks, 192);
   assert.equal(secondBar.ticks, 384);
   assert.equal(all.totalTicks, 960);
-  assert.equal(compileRhythm(bars, 1, 192).totalTicks, 576);
+  assert.equal(compileRhythm(bars, [1, 1], 192).totalTicks, 576);
+  assert.deepEqual(
+    [...new Set(compileRhythm([makeBar(1), makeBar(2), makeBar(3)], [1, 2], 1).events.map(({ bar }) => bar))],
+    [1, 2],
+  );
   assert.equal(rhythmEventIndexAtTime(0.5, 120, compileRhythm([makeBar(2, 1)], null, 1)), 1);
 });
 
 test("rhythm codes round-trip and reject malformed data", () => {
-  const rhythm = { bpm: 108, beatUnit: 8, bars: [makeBar(2, 3), makeBar(4, 1)], loopBar: 1 };
+  const rhythm = {
+    bpm: 108,
+    beatUnit: 8,
+    bars: [makeBar(2, 3), makeBar(4, 1)],
+    loopBar: [0, 1],
+  };
   assert.deepEqual(decodeRhythm(encodeRhythm(rhythm)), rhythm);
+  const longRhythm = {
+    ...rhythm,
+    bars: Array.from({ length: 400 }, () => makeBar(1)),
+    loopBar: [120, 319],
+  };
+  assert.deepEqual(decodeRhythm(encodeRhythm(longRhythm)), longRhythm);
   const oldCode = btoa(JSON.stringify({ v: 1, bpm: 96, bars: [makeBar(4, 1)], loopBar: null }));
   assert.throws(() => decodeRhythm(oldCode));
   assert.throws(() => decodeRhythm("not-a-rhythm"));
@@ -143,6 +163,8 @@ test("gap click starts with sound and keeps each difficulty inside its ranges", 
     }
   }
 
+  assert.equal(makeGapPattern("medium", 50_000, () => 0.5).length, 50_000);
+
   const plan = compileRhythm([makeBar(1, 1)], null, 1, [false, true]);
   assert.equal(plan.totalTicks, 2);
   assert.deepEqual(plan.events.map(({ gap }) => gap), [false, true]);
@@ -153,7 +175,7 @@ test("click tracks are valid looping PCM WAV files", () => {
     makeClickTrackWav(
       {
         bpm: 120,
-        bars: [{ beats: [{ enabled: true, steps: [0, 1] }] }],
+        bars: [{ beats: [{ steps: [0, 1] }] }],
         loopBar: null,
         sound: "click",
       },
