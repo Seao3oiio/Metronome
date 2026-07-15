@@ -2086,6 +2086,7 @@ export default function App() {
 
           <div
             className="gap-click track-controls"
+            hidden={!advancedRhythm}
             role="group"
             aria-label="播放控制"
           >
@@ -2112,7 +2113,6 @@ export default function App() {
             <button
               className={settings.countIn ? "is-active" : ""}
               type="button"
-              hidden={!advancedRhythm}
               onClick={() => updateSettings({ countIn: !settings.countIn })}
               aria-pressed={settings.countIn}
               title="开始前预备一小节"
@@ -2122,7 +2122,6 @@ export default function App() {
             <button
               className={settings.gapClick ? "is-active" : ""}
               type="button"
-              hidden={!advancedRhythm}
               onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
               aria-pressed={settings.gapClick}
               title="时间轴继续，仅随机关闭声音和节拍动画"
@@ -2132,7 +2131,6 @@ export default function App() {
             </button>
             <div
               className="gap-levels"
-              hidden={!advancedRhythm}
               role="group"
               aria-label="随机空拍难度"
             >
