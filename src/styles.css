@@ -1048,14 +1048,8 @@ input[type="range"]::-moz-range-thumb {
 
 .rhythm-toolbar {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
   align-items: center;
-}
-
-.rhythm-toolbar::after {
-  width: 44px;
-  height: 44px;
-  content: "";
 }
 
 .matrix-icon-button,

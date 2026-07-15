@@ -1691,6 +1691,26 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              <button
+                className="matrix-control"
+                type="button"
+                onClick={deleteBar}
+                disabled={settings.bars.length === 1}
+                aria-label="删除当前小节"
+                title="删除当前小节"
+              >
+                <Minus />
+              </button>
+              <button
+                className="matrix-control"
+                type="button"
+                onClick={duplicateBar}
+                disabled={settings.bars.length === MAX_BARS}
+                aria-label="复制当前小节"
+                title="复制当前小节"
+              >
+                <Plus />
+              </button>
             </div>
 
             <div
@@ -1700,17 +1720,6 @@ export default function App() {
                 "--beat-columns": editorBar.beats.length,
               }}
             >
-              <button
-                className="matrix-control bar-control"
-                type="button"
-                onClick={deleteBar}
-                disabled={settings.bars.length === 1}
-                aria-label="删除当前小节"
-                title="删除当前小节"
-              >
-                <Minus />
-              </button>
-
               <div
                 className={`matrix-body ${editorBar.beats.length > 4 ? "has-many-beats" : ""}`}
               >
@@ -1814,17 +1823,6 @@ export default function App() {
                   <Plus />
                 </button>
               </div>
-
-              <button
-                className="matrix-control bar-control"
-                type="button"
-                onClick={duplicateBar}
-                disabled={settings.bars.length === MAX_BARS}
-                aria-label="复制当前小节"
-                title="复制当前小节"
-              >
-                <Plus />
-              </button>
             </div>
           </div>
 
