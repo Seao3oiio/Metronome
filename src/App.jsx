@@ -882,6 +882,10 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
+    if (advancedRhythm && playing) setEditorBarIndex(visual.bar);
+  }, [advancedRhythm, playing, visual.bar]);
+
+  useEffect(() => {
     audioRef.current?.output?.gain.rampTo(
       settings.muted ? 0 : settings.volume / 100,
       0.03,
