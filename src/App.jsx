@@ -950,7 +950,7 @@ export default function App() {
             event.beat === 0 ? note.accent : note.normal,
             note.duration,
             time,
-            event.beat === 0 ? 1 : 0.74,
+            event.beat === 0 ? 0.62 : 0.34,
           );
         }
         if (!eventGapMuted && current.rhythmTrack && step > 0) {
@@ -960,7 +960,7 @@ export default function App() {
             step === 2 ? note.accent : note.normal,
             note.duration,
             time,
-            step === 2 ? 0.58 : 0.46,
+            step === 2 ? 1 : 0.82,
           );
         }
 
