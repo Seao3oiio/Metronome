@@ -8,10 +8,12 @@ import {
   decodeRhythm,
   encodeRhythm,
   makeClickTrackWav,
+  makeGapPattern,
   makeBar,
   normalizeBars,
   nextTrainingBpm,
   rhythmEventIndexAtTime,
+  rhythmDefaultName,
   tempoName,
 } from "./metronome.js";
 
@@ -68,6 +70,47 @@ test("rhythm codes round-trip and reject malformed data", () => {
   assert.throws(() => decodeRhythm("not-a-rhythm"));
 });
 
+test("new rhythms have a useful 4/4 default name", () => {
+  assert.equal(rhythmDefaultName({ bpm: 96, bars: [makeBar(4, 1)] }), "4/4 · 四分 · 96 BPM");
+  assert.equal(
+    rhythmDefaultName({ bpm: 120, bars: [makeBar(3, 2), makeBar(2, 3)] }),
+    "2 小节 · 自定义 · 120 BPM",
+  );
+});
+
+test("gap click starts with sound and keeps each difficulty inside its ranges", () => {
+  const ranges = {
+    easy: { sound: [3, 5], mute: [1, 1] },
+    medium: { sound: [2, 4], mute: [1, 2] },
+    hard: { sound: [1, 3], mute: [2, 4] },
+  };
+
+  for (const [difficulty, limits] of Object.entries(ranges)) {
+    for (let barCount = 1; barCount <= 8; barCount += 1) {
+      const pattern = makeGapPattern(difficulty, barCount, () => 0);
+      assert.deepEqual(pattern.slice(0, 2), [false, false]);
+      assert.equal(pattern.length % barCount, 0);
+      assert.equal(pattern.at(-1), true);
+
+      const runs = pattern.reduce((result, muted) => {
+        const last = result.at(-1);
+        if (last?.muted === muted) last.length += 1;
+        else result.push({ muted, length: 1 });
+        return result;
+      }, []);
+      runs.forEach((run, index) => {
+        const [min, max] = run.muted ? limits.mute : limits.sound;
+        assert.ok(run.length >= (index === 0 ? Math.max(2, min) : min));
+        assert.ok(run.length <= max);
+      });
+    }
+  }
+
+  const plan = compileRhythm([makeBar(1, 1)], null, 1, [false, true]);
+  assert.equal(plan.totalTicks, 2);
+  assert.deepEqual(plan.events.map(({ gap }) => gap), [false, true]);
+});
+
 test("click tracks are valid looping PCM WAV files", () => {
   const wav = makeClickTrackWav(
     { bpm: 120, bars: [makeBar(2, 1)], loopBar: null, sound: "click" },
@@ -79,4 +122,14 @@ test("click tracks are valid looping PCM WAV files", () => {
   assert.equal(view.getUint32(24, true), 8000);
   assert.equal(view.getUint32(40, true), 32000);
   assert.ok(new Int16Array(wav, 44).some(Boolean));
+
+  const gapWav = makeClickTrackWav(
+    { bpm: 240, bars: [makeBar(1, 12)], loopBar: null, sound: "drum" },
+    8000,
+    1,
+    [false, true],
+  );
+  const samples = new Int16Array(gapWav, 44);
+  assert.ok(samples.subarray(0, 2000).some(Boolean));
+  assert.ok(samples.subarray(2000).every((sample) => sample === 0));
 });

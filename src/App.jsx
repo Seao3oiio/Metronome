@@ -12,6 +12,7 @@ import {
   Play,
   Plus,
   Repeat2,
+  Save,
   Share2,
   Volume2,
   VolumeX,
@@ -31,12 +32,16 @@ import {
   decodeRhythm,
   encodeRhythm,
   makeClickTrackWav,
+  makeGapPattern,
   makeBar,
   normalizeBars,
   nextTrainingBpm,
   rhythmEventIndexAtTime,
+  rhythmDefaultName,
   tempoName,
 } from "./metronome.js";
+
+const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
 
 const RHYTHM_SUBDIVISIONS = [
   { value: 1, label: "四分" },
@@ -46,6 +51,12 @@ const RHYTHM_SUBDIVISIONS = [
   { value: 5, label: "五连" },
   { value: 6, label: "六连" },
   { value: 8, label: "三十二分" },
+];
+
+const GAP_DIFFICULTIES = [
+  { value: "easy", label: "轻", title: "响 3–5 小节，空 1 小节" },
+  { value: "medium", label: "中", title: "响 2–4 小节，空 1–2 小节" },
+  { value: "hard", label: "难", title: "响 1–3 小节，空 2–4 小节" },
 ];
 
 const SOUNDS = [
@@ -74,6 +85,8 @@ const DEFAULT_SETTINGS = {
   changeMode: "bars",
   changeEvery: 4,
   changeAmount: 2,
+  gapClick: false,
+  gapDifficulty: "medium",
   volume: 72,
   muted: false,
 };
@@ -142,10 +155,40 @@ function loadSettings() {
         ? Math.min(100, Math.max(0, Number(saved.volume)))
         : defaults.volume,
       trainer: Boolean(saved.trainer),
+      gapClick: Boolean(saved.gapClick),
+      gapDifficulty: GAP_DIFFICULTIES.some(({ value }) => value === saved.gapDifficulty)
+        ? saved.gapDifficulty
+        : defaults.gapDifficulty,
       muted: Boolean(saved.muted),
     };
   } catch {
     return freshSettings();
+  }
+}
+
+function loadRhythmLibrary() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RHYTHM_LIBRARY_KEY));
+    if (!Array.isArray(saved)) return [];
+    return saved.slice(0, 50).filter((item) => {
+      if (
+        typeof item?.id !== "string" ||
+        typeof item?.name !== "string" ||
+        !item.name.trim() ||
+        item.name.length > 40 ||
+        typeof item?.code !== "string"
+      ) {
+        return false;
+      }
+      try {
+        decodeRhythm(item.code);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return [];
   }
 }
 
@@ -155,6 +198,44 @@ function cloneBeat(beat) {
 
 function cloneBar(bar) {
   return { beats: bar.beats.map(cloneBeat) };
+}
+
+function SubdivisionGlyph({ value }) {
+  if (value === 1) {
+    return (
+      <svg viewBox="0 0 64 38" aria-hidden="true">
+        <ellipse cx="28" cy="29" rx="5" ry="3.5" transform="rotate(-18 28 29)" />
+        <path d="M32 28V7" />
+      </svg>
+    );
+  }
+
+  const start = 6;
+  const end = 56;
+  const positions = Array.from(
+    { length: value },
+    (_, index) => start + (index * (end - start)) / (value - 1),
+  );
+  const beamCount = value >= 8 ? 3 : value >= 4 ? 2 : 1;
+  const tuplet = [3, 5, 6].includes(value);
+  return (
+    <svg viewBox="0 0 64 38" aria-hidden="true">
+      {tuplet && <text x="32" y="8">{value}</text>}
+      {positions.map((x) => (
+        <g key={x}>
+          <ellipse cx={x} cy="31" rx="3.2" ry="2.3" transform={`rotate(-18 ${x} 31)`} />
+          <path d={`M${x + 2.7} 30V12`} />
+        </g>
+      ))}
+      {Array.from({ length: beamCount }, (_, index) => (
+        <path
+          key={index}
+          className="notation-beam"
+          d={`M${start + 2.5} ${12 + index * 4}H${end + 2.5}`}
+        />
+      ))}
+    </svg>
+  );
 }
 
 function RhythmDot({ className, label, title, onPress, onHold, style }) {
@@ -261,24 +342,35 @@ function isIOSDevice() {
   );
 }
 
-function mediaTrackKey(settings) {
-  return JSON.stringify([settings.bpm, settings.sound, settings.loopBar, settings.bars]);
+function mediaTrackKey(settings, gapPattern) {
+  return JSON.stringify([
+    settings.bpm,
+    settings.sound,
+    settings.loopBar,
+    settings.bars,
+    settings.gapClick,
+    settings.gapDifficulty,
+    gapPattern,
+  ]);
 }
 
 async function syncMediaLoop(audio, settings) {
   audio.media.volume = settings.muted ? 0 : settings.volume / 100;
-  const key = mediaTrackKey(settings);
+  const key = mediaTrackKey(settings, audio.gapPattern);
   if (audio.mediaKey === key) return;
 
+  const plan = compileRhythm(settings.bars, settings.loopBar, 1, audio.gapPattern);
   const url = URL.createObjectURL(
-    new Blob([makeClickTrackWav(settings)], { type: "audio/wav" }),
+    new Blob([makeClickTrackWav(settings, 12000, 1, audio.gapPattern)], {
+      type: "audio/wav",
+    }),
   );
   const previousUrl = audio.url;
   audio.media.src = url;
   audio.mediaKey = key;
   audio.lastEvent = -1;
   audio.lastTime = -1;
-  audio.plan = compileRhythm(settings.bars, settings.loopBar, 1);
+  audio.plan = plan;
   audio.url = url;
   await audio.media.play();
   if (previousUrl) URL.revokeObjectURL(previousUrl);
@@ -289,12 +381,22 @@ export default function App() {
   const [bpmDraft, setBpmDraft] = useState(String(settings.bpm));
   const [playing, setPlaying] = useState(false);
   const [status, setStatus] = useState("就绪");
-  const [visual, setVisual] = useState({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false });
+  const [visual, setVisual] = useState({
+    bar: 0,
+    beat: 0,
+    sub: 0,
+    pulse: 0,
+    hit: false,
+    gap: false,
+  });
   const [editorBarIndex, setEditorBarIndex] = useState(() => settings.loopBar ?? 0);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showRhythmCode, setShowRhythmCode] = useState(false);
   const [rhythmCode, setRhythmCode] = useState("");
+  const [savedRhythms, setSavedRhythms] = useState(loadRhythmLibrary);
+  const [selectedRhythmId, setSelectedRhythmId] = useState("");
+  const [rhythmName, setRhythmName] = useState("");
   const [advancedRhythm, setAdvancedRhythm] = useState(
     () => window.location.hash === "#rhythm",
   );
@@ -340,6 +442,7 @@ export default function App() {
     Tone.getDraw().cancel(0);
     audioRef.current?.part.dispose();
     Object.values(audioRef.current?.instruments ?? {}).forEach((instrument) => instrument.dispose());
+    audioRef.current?.gapGate?.dispose();
     audioRef.current?.output.dispose();
     audioRef.current = null;
   }, []);
@@ -349,7 +452,7 @@ export default function App() {
       generationRef.current += 1;
       playingRef.current = false;
       setPlaying(false);
-      setVisual({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false });
+      setVisual({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false, gap: false });
       setStatus(message);
       disposeAudio();
       setAudioSession("auto");
@@ -372,6 +475,13 @@ export default function App() {
         setSettings((current) => ({ ...current, bpm }));
       }
 
+      const gapBarCount = settingsRef.current.loopBar === null
+        ? settingsRef.current.bars.length
+        : 1;
+      const gapPattern = settingsRef.current.gapClick
+        ? makeGapPattern(settingsRef.current.gapDifficulty, gapBarCount)
+        : [];
+
       let mediaAudio = null;
       if (isIOS) {
         const media = new Audio();
@@ -386,6 +496,7 @@ export default function App() {
           lastEvent: -1,
           lastTime: -1,
           plan: null,
+          gapPattern,
           startedAt: performance.now() / 1000,
         };
         audioRef.current = mediaAudio;
@@ -416,6 +527,7 @@ export default function App() {
             const enteredBar =
               mediaAudio.lastEvent >= 0 && event.beat === 0 && event.sub === 0;
             if (enteredBar) barsRef.current += 1;
+            const gapMuted = Boolean(event.gap);
             const elapsed = performance.now() / 1000 - mediaAudio.startedAt;
             const nextMinuteDeadline =
               current.trainer && current.changeMode === "minute"
@@ -441,7 +553,8 @@ export default function App() {
               beat: event.beat,
               sub: event.sub,
               pulse: performance.now(),
-              hit: beatData?.enabled && step > 0,
+              hit: !gapMuted && beatData?.enabled && step > 0,
+              gap: gapMuted,
             });
             mediaAudio.lastEvent = eventIndex;
           }
@@ -459,7 +572,8 @@ export default function App() {
       const output = new Tone.Gain(
         settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
       ).toDestination();
-      const instruments = createInstruments(output);
+      const gapGate = new Tone.Gain(1).connect(output);
+      const instruments = createInstruments(gapGate);
 
       barsRef.current = 0;
       transport.position = 0;
@@ -470,12 +584,15 @@ export default function App() {
         settingsRef.current.bars,
         settingsRef.current.loopBar,
         transport.PPQ,
+        gapPattern,
       );
       const part = new Tone.Part((time, event) => {
         let current = settingsRef.current;
         const beatData = current.bars[event.bar]?.beats[event.beat];
         const step = beatData?.steps[event.sub] ?? 0;
         const enteredBar = event.beat === 0 && event.sub === 0;
+        const eventGapMuted = Boolean(event.gap);
+        if (enteredBar) gapGate.gain.setValueAtTime(eventGapMuted ? 0 : 1, time);
 
         const nextMinuteDeadline =
           current.trainer && current.changeMode === "minute"
@@ -505,7 +622,7 @@ export default function App() {
           }
         }
 
-        if (beatData?.enabled && step > 0) {
+        if (!eventGapMuted && beatData?.enabled && step > 0) {
           const note = SOUND_NOTES[current.sound];
           const frequency = step === 2 ? note.accent : note.normal;
           const velocity = step === 2 ? 1 : 0.74;
@@ -519,17 +636,18 @@ export default function App() {
             beat: event.beat,
             sub: event.sub,
             pulse: performance.now(),
-            hit: Boolean(beatData?.enabled && step > 0),
+            hit: Boolean(!eventGapMuted && beatData?.enabled && step > 0),
+            gap: eventGapMuted,
           });
         }, time);
 
         if (enteredBar) barsRef.current += 1;
       }, plan.events.map((event) => [Tone.Ticks(event.ticks), event]));
-      part.loop = true;
       part.loopEnd = Tone.Ticks(plan.totalTicks);
+      part.loop = true;
       part.start(0);
 
-      audioRef.current = { part, instruments, output };
+      audioRef.current = { part, instruments, gapGate, output };
       playingRef.current = true;
       setPlaying(true);
       setStatus("运行中");
@@ -811,11 +929,75 @@ export default function App() {
     }
   };
 
+  const saveLocalRhythm = () => {
+    const existingIndex = savedRhythms.findIndex(({ id }) => id === selectedRhythmId);
+    if (existingIndex < 0 && savedRhythms.length >= 50) {
+      setStatus("最多保存 50 个节奏");
+      return;
+    }
+
+    const id =
+      existingIndex >= 0
+        ? selectedRhythmId
+        : crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const baseName = (rhythmName.trim() || rhythmDefaultName(settingsRef.current)).slice(0, 40);
+    const usedNames = new Set(
+      savedRhythms.filter((item) => item.id !== id).map((item) => item.name),
+    );
+    let name = baseName;
+    let suffix = 2;
+    while (usedNames.has(name)) {
+      const ending = ` (${suffix++})`;
+      name = `${baseName.slice(0, 40 - ending.length)}${ending}`;
+    }
+
+    const item = { id, name, code: encodeRhythm(settingsRef.current) };
+    const next =
+      existingIndex >= 0
+        ? savedRhythms.map((saved) => (saved.id === id ? item : saved))
+        : [...savedRhythms, item];
+    try {
+      localStorage.setItem(RHYTHM_LIBRARY_KEY, JSON.stringify(next));
+      setSavedRhythms(next);
+      setSelectedRhythmId(id);
+      setRhythmName(name);
+      setStatus("已保存到本机");
+    } catch {
+      setStatus("本地保存失败");
+    }
+  };
+
+  const switchLocalRhythm = (id) => {
+    setSelectedRhythmId(id);
+    if (!id) {
+      setRhythmName("");
+      return;
+    }
+    const saved = savedRhythms.find((item) => item.id === id);
+    if (!saved) return;
+    try {
+      const rhythm = decodeRhythm(saved.code);
+      if (playingRef.current) stop("节奏已切换");
+      setEditorBarIndex(rhythm.loopBar ?? 0);
+      setBpmDraft(String(rhythm.bpm));
+      setRhythmName(saved.name);
+      updateSettings(rhythm);
+      setStatus("节奏已切换");
+    } catch {
+      setStatus("保存的节奏无效");
+    }
+  };
+
   const changeTrainer = (patch) => {
     barsRef.current = 0;
     minuteDeadlineRef.current = audioRef.current?.media
       ? performance.now() / 1000 - audioRef.current.startedAt + 60
       : Tone.getTransport().seconds + 60;
+    updateSettings(patch);
+  };
+
+  const changeGapClick = (patch) => {
+    if (playingRef.current) stop("随机空拍已更新");
     updateSettings(patch);
   };
 
@@ -918,7 +1100,7 @@ export default function App() {
               </div>
               <div className="tempo-meta" aria-hidden="true">
                 <span className="beat-count">
-                  {playing ? visual.beat + 1 : "—"} / {displayBar.beats.length}
+                  {playing && !visual.gap ? visual.beat + 1 : "—"} / {displayBar.beats.length}
                 </span>
                 {settings.trainer && (
                   <span className="trainer-target">→ {settings.targetBpm}</span>
@@ -934,7 +1116,7 @@ export default function App() {
                 className={[
                   beat.steps[0] === 2 ? "is-accent" : "",
                   !beat.enabled ? "is-muted" : "",
-                  playing && index === visual.beat ? "is-active" : "",
+                  playing && !visual.gap && index === visual.beat ? "is-active" : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
@@ -1038,7 +1220,7 @@ export default function App() {
                 <span>快捷节奏</span>
               </div>
               <div className="quick-rhythm-selects">
-                <label>
+                <label className="meter-picker">
                   <span>拍号</span>
                   <select
                     value={uniformRhythm ? editorBar.beats.length : ""}
@@ -1050,20 +1232,24 @@ export default function App() {
                     ))}
                   </select>
                 </label>
-                <label>
+                <div className="subdivision-picker">
                   <span>拍内细分</span>
-                  <select
-                    value={quickSubdivision}
-                    onChange={(event) =>
-                      changeUniformRhythm({ subdivision: Number(event.target.value) })
-                    }
-                  >
-                    {!uniformRhythm && <option value="">自定义</option>}
+                  <div role="group" aria-label="拍内细分">
                     {RHYTHM_SUBDIVISIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={quickSubdivision === option.value ? "is-selected" : ""}
+                        aria-label={option.label}
+                        aria-pressed={quickSubdivision === option.value}
+                        title={option.label}
+                        onClick={() => changeUniformRhythm({ subdivision: option.value })}
+                      >
+                        <SubdivisionGlyph value={option.value} />
+                      </button>
                     ))}
-                  </select>
-                </label>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1074,6 +1260,106 @@ export default function App() {
               <span>高级节奏</span>
               <ChevronRight />
             </a>
+          </div>
+
+          <div className="rhythm-library" hidden={!advancedRhythm}>
+            <select
+              value={selectedRhythmId}
+              onChange={(event) => switchLocalRhythm(event.target.value)}
+              aria-label="切换本地节奏"
+            >
+              <option value="">新节奏</option>
+              {savedRhythms.map((saved) => (
+                <option key={saved.id} value={saved.id}>{saved.name}</option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={rhythmName}
+              onChange={(event) => setRhythmName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveLocalRhythm();
+              }}
+              maxLength={40}
+              placeholder={rhythmDefaultName(settings)}
+              aria-label="节奏名称，可留空自动命名"
+            />
+            <button type="button" onClick={saveLocalRhythm}>
+              <Save />
+              <span>保存</span>
+            </button>
+          </div>
+
+          <div className="advanced-transport" hidden={!advancedRhythm}>
+            <button
+              type="button"
+              onClick={() => setBpm(settings.bpm - 1)}
+              aria-label="速度减 1 BPM"
+            >
+              <Minus />
+            </button>
+            <label className="advanced-bpm">
+              <span className="sr-only">每分钟节拍数</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={bpmDraft}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => {
+                  if (/^\d{0,3}$/.test(event.target.value)) setBpmDraft(event.target.value);
+                }}
+                onBlur={commitBpm}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
+              <em>BPM</em>
+            </label>
+            <button
+              type="button"
+              onClick={() => setBpm(settings.bpm + 1)}
+              aria-label="速度加 1 BPM"
+            >
+              <Plus />
+            </button>
+            <button
+              className="advanced-play"
+              type="button"
+              onClick={togglePlayback}
+              aria-pressed={playing}
+            >
+              {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
+              <span>{playing ? "暂停" : "开始"}</span>
+            </button>
+          </div>
+
+          <div className="gap-click" hidden={!advancedRhythm}>
+            <button
+              className={settings.gapClick ? "is-active" : ""}
+              type="button"
+              onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
+              aria-pressed={settings.gapClick}
+              title="时间轴继续，仅随机关闭声音和节拍动画"
+            >
+              <VolumeX />
+              <span>随机空拍</span>
+            </button>
+            <div className="gap-levels" role="group" aria-label="随机空拍难度">
+              {GAP_DIFFICULTIES.map((option) => (
+                <button
+                  key={option.value}
+                  className={settings.gapDifficulty === option.value ? "is-selected" : ""}
+                  type="button"
+                  onClick={() => changeGapClick({ gapDifficulty: option.value })}
+                  disabled={!settings.gapClick}
+                  aria-pressed={settings.gapDifficulty === option.value}
+                  title={option.title}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="setting-block rhythm-block" hidden={!advancedRhythm}>
@@ -1095,7 +1381,7 @@ export default function App() {
                     type="button"
                     className={[
                       index === editorBarIndex ? "is-current" : "",
-                      playing && index === visual.bar ? "is-playing" : "",
+                      playing && !visual.gap && index === visual.bar ? "is-playing" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
@@ -1173,6 +1459,7 @@ export default function App() {
                                   `state-${step}`,
                                   isTitle ? "beat-title" : "",
                                   playing &&
+                                  !visual.gap &&
                                   visual.bar === editorBarIndex &&
                                   visual.beat === beatIndex &&
                                   visual.sub === sub

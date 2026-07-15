@@ -588,6 +588,7 @@ input[type="range"]::-moz-range-thumb {
 
 .advanced-rhythm-card {
   min-height: 700px;
+  overflow: visible;
 }
 
 .advanced-rhythm-card .settings-heading {
@@ -686,11 +687,12 @@ input[type="range"]::-moz-range-thumb {
 
 .quick-rhythm-selects {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 105px minmax(0, 1fr);
   gap: 8px;
 }
 
-.quick-rhythm-selects label {
+.meter-picker,
+.subdivision-picker {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -699,9 +701,9 @@ input[type="range"]::-moz-range-thumb {
   font-size: 11px;
 }
 
-.quick-rhythm-selects select {
+.meter-picker select {
   width: 100%;
-  min-height: 48px;
+  min-height: 52px;
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -711,8 +713,59 @@ input[type="range"]::-moz-range-thumb {
   font-size: 16px;
 }
 
-.quick-rhythm-selects select:focus {
+.meter-picker select:focus {
   border-color: rgba(116, 228, 208, 0.48);
+}
+
+.subdivision-picker > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(44px, 1fr));
+  gap: 5px;
+}
+
+.subdivision-picker button {
+  display: grid;
+  min-width: 44px;
+  min-height: 52px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(7, 9, 13, 0.42);
+  color: var(--muted-strong);
+  cursor: pointer;
+  place-items: center;
+}
+
+.subdivision-picker button.is-selected {
+  border-color: rgba(139, 123, 255, 0.34);
+  background: rgba(139, 123, 255, 0.15);
+  color: var(--violet-bright);
+}
+
+.subdivision-picker svg {
+  width: 100%;
+  max-width: 54px;
+  height: 34px;
+  overflow: visible;
+  fill: currentColor;
+}
+
+.subdivision-picker svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-width: 2.1;
+}
+
+.subdivision-picker svg .notation-beam {
+  stroke-width: 3;
+}
+
+.subdivision-picker svg text {
+  fill: currentColor;
+  font-size: 9px;
+  font-weight: 800;
+  text-anchor: middle;
 }
 
 .advanced-rhythm-link {
@@ -737,6 +790,179 @@ input[type="range"]::-moz-range-thumb {
 
 .advanced-rhythm-link svg {
   width: 17px;
+}
+
+.rhythm-library {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(180px, 1fr) auto;
+  gap: 8px;
+  padding: 18px 0 4px;
+}
+
+.rhythm-library select,
+.rhythm-library input {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  outline: 0;
+  background: rgba(7, 9, 13, 0.42);
+  color: var(--text);
+}
+
+.rhythm-library select:focus,
+.rhythm-library input:focus {
+  border-color: rgba(116, 228, 208, 0.48);
+}
+
+.rhythm-library button {
+  display: inline-flex;
+  min-height: 46px;
+  gap: 7px;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid rgba(116, 228, 208, 0.24);
+  border-radius: 11px;
+  background: rgba(116, 228, 208, 0.08);
+  color: var(--cyan);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.rhythm-library button svg {
+  width: 17px;
+}
+
+.advanced-transport {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 44px minmax(82px, 110px) 44px minmax(100px, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 16px;
+  background: rgba(18, 21, 29, 0.92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(18px);
+}
+
+.advanced-transport > button {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 48px;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted-strong);
+  cursor: pointer;
+}
+
+.advanced-transport > button svg {
+  width: 17px;
+}
+
+.advanced-bpm {
+  position: relative;
+  display: block;
+}
+
+.advanced-bpm input {
+  width: 100%;
+  height: 48px;
+  padding: 0 33px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  outline: 0;
+  background: rgba(7, 9, 13, 0.56);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.advanced-bpm input:focus {
+  border-color: rgba(116, 228, 208, 0.48);
+}
+
+.advanced-bpm em {
+  position: absolute;
+  right: 8px;
+  top: 19px;
+  color: var(--muted);
+  font-size: 8px;
+  font-style: normal;
+}
+
+.advanced-transport > .advanced-play {
+  border-color: rgba(139, 123, 255, 0.28);
+  background: linear-gradient(135deg, rgba(170, 159, 255, 0.95), rgba(120, 103, 244, 0.95));
+  color: #101019;
+  font-weight: 750;
+}
+
+.gap-click {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 7px;
+  margin-top: 8px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 15px;
+  background: rgba(7, 9, 13, 0.32);
+}
+
+.gap-click button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-strong);
+  cursor: pointer;
+}
+
+.gap-click > button {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  font-weight: 650;
+}
+
+.gap-click > button svg {
+  width: 17px;
+}
+
+.gap-click > button.is-active {
+  border-color: rgba(116, 228, 208, 0.3);
+  background: rgba(116, 228, 208, 0.09);
+  color: var(--cyan);
+}
+
+.gap-levels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.gap-levels button.is-selected {
+  border-color: rgba(139, 123, 255, 0.34);
+  background: rgba(139, 123, 255, 0.17);
+  color: var(--text);
+}
+
+.gap-levels button:disabled {
+  opacity: 0.32;
+  cursor: default;
 }
 
 .rhythm-block {
@@ -1447,6 +1673,10 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .advanced-transport {
+    top: calc(max(8px, env(safe-area-inset-top)) + 58px);
+  }
+
   .topbar {
     position: sticky;
     top: max(8px, env(safe-area-inset-top));
@@ -1556,6 +1786,29 @@ footer {
 
   .rhythm-share-actions span {
     display: none;
+  }
+
+  .quick-rhythm-selects {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rhythm-library {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rhythm-library select {
+    grid-column: 1 / -1;
+  }
+
+  .rhythm-library select,
+  .rhythm-library input {
+    font-size: 16px;
+  }
+
+  .advanced-transport {
+    grid-template-columns: 44px minmax(72px, 92px) 44px minmax(44px, 1fr);
+    gap: 5px;
+    margin-inline: -8px;
   }
 
   .tempo-stage {
@@ -1672,6 +1925,10 @@ footer {
 
   .rhythm-block {
     margin-inline: -18px;
+  }
+
+  .advanced-play span {
+    display: none;
   }
 
   .transport-row {

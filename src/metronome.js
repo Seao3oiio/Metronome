@@ -11,6 +11,12 @@ const TRACK_SOUNDS = {
   soft: { accent: 940, normal: 720, duration: 0.04 },
 };
 
+const GAP_RANGES = {
+  easy: { sound: [3, 5], mute: [1, 1] },
+  medium: { sound: [2, 4], mute: [1, 2] },
+  hard: { sound: [1, 3], mute: [2, 4] },
+};
+
 export function clampBpm(value) {
   return Math.min(BPM_MAX, Math.max(BPM_MIN, Math.round(Number(value) || 0)));
 }
@@ -115,14 +121,69 @@ export function decodeRhythm(code) {
   return { bpm: payload.bpm, bars, loopBar: payload.loopBar };
 }
 
-export function compileRhythm(bars, loopBar, ppq) {
+export function rhythmDefaultName({ bpm, bars }) {
+  const bar = bars.length === 1 ? bars[0] : null;
+  const subdivision =
+    bar && bar.beats.every((beat) => beat.steps.length === bar.beats[0].steps.length)
+      ? bar.beats[0].steps.length
+      : null;
+  const subdivisionName = {
+    1: "四分",
+    2: "八分",
+    3: "三连",
+    4: "十六分",
+    5: "五连",
+    6: "六连",
+    8: "三十二分",
+  }[subdivision];
+  const shape = bar ? `${bar.beats.length}/4` : `${bars.length} 小节`;
+  return `${shape} · ${subdivisionName ?? "自定义"} · ${bpm} BPM`;
+}
+
+export function makeGapPattern(difficulty = "medium", barCount = 1, random = Math.random) {
+  const ranges = GAP_RANGES[difficulty] ?? GAP_RANGES.medium;
+  const rhythmBars = Math.min(MAX_BARS, Math.max(1, Math.round(Number(barCount) || 1)));
+  const target = rhythmBars * Math.ceil(16 / rhythmBars);
+  const options = [];
+  for (let sound = ranges.sound[0]; sound <= ranges.sound[1]; sound += 1) {
+    for (let mute = ranges.mute[0]; mute <= ranges.mute[1]; mute += 1) {
+      options.push({ sound, mute });
+    }
+  }
+
+  const fill = (remaining, first = false) => {
+    const shuffled = options
+      .map((option) => ({ option, order: random() }))
+      .sort((left, right) => left.order - right.order);
+    for (const { option } of shuffled) {
+      const size = option.sound + option.mute;
+      if ((first && option.sound < 2) || size > remaining) continue;
+      if (size === remaining) return [option];
+      const rest = fill(remaining - size);
+      if (rest) return [option, ...rest];
+    }
+    return null;
+  };
+
+  return fill(target, true).flatMap(({ sound, mute }) => [
+    ...Array(sound).fill(false),
+    ...Array(mute).fill(true),
+  ]);
+}
+
+export function compileRhythm(bars, loopBar, ppq, gapPattern = []) {
   const selectedBars = Number.isInteger(loopBar)
     ? bars.slice(loopBar, loopBar + 1).map((bar) => [bar, loopBar])
     : bars.map((bar, index) => [bar, index]);
+  const scheduledBars = gapPattern.length
+    ? gapPattern.map((gap, index) => [...selectedBars[index % selectedBars.length], gap])
+    : selectedBars.map((bar) => [...bar, false]);
   const events = [];
+  const barSpans = [];
   let cursor = 0;
 
-  selectedBars.forEach(([bar, barIndex]) => {
+  scheduledBars.forEach(([bar, barIndex, gap]) => {
+    const startTicks = cursor;
     bar.beats.forEach((beat, beatIndex) => {
       const beatStart = cursor + beatIndex * ppq;
       beat.steps.forEach((_, sub) => {
@@ -131,13 +192,15 @@ export function compileRhythm(bars, loopBar, ppq) {
           bar: barIndex,
           beat: beatIndex,
           sub,
+          gap,
         });
       });
     });
     cursor += bar.beats.length * ppq;
+    barSpans.push({ startTicks, endTicks: cursor, gap });
   });
 
-  return { events, totalTicks: cursor };
+  return { events, totalTicks: cursor, barSpans };
 }
 
 export function nextTrainingBpm(current, target, step) {
@@ -159,16 +222,17 @@ export function rhythmEventIndexAtTime(seconds, bpm, plan) {
   return index;
 }
 
-export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1) {
+export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapPattern = []) {
   const { bpm, bars, loopBar, sound } = settings;
   const note = TRACK_SOUNDS[sound] ?? TRACK_SOUNDS.click;
-  const plan = compileRhythm(bars, loopBar, 1);
+  const plan = compileRhythm(bars, loopBar, 1, gapPattern);
   const beatSeconds = 60 / bpm;
   const frames = Math.ceil(cycles * plan.totalTicks * beatSeconds * sampleRate);
   const samples = new Float32Array(frames);
 
   for (let cycle = 0; cycle < cycles; cycle += 1) {
     for (const event of plan.events) {
+      if (event.gap) continue;
       const beat = bars[event.bar]?.beats[event.beat];
       const step = beat?.steps[event.sub] ?? 0;
       if (!beat?.enabled || !step) continue;
@@ -192,6 +256,17 @@ export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1) {
         const envelope = Math.min(1, time / 0.001) * Math.exp(-6 * time / note.duration);
         samples[(start + index) % frames] += wave * envelope * velocity * 0.75;
       }
+    }
+    for (const span of plan.barSpans) {
+      if (!span.gap) continue;
+      const start = Math.round(
+        (cycle * plan.totalTicks + span.startTicks) * beatSeconds * sampleRate,
+      );
+      const end = Math.min(
+        frames,
+        Math.round((cycle * plan.totalTicks + span.endTicks) * beatSeconds * sampleRate),
+      );
+      samples.fill(0, start, end);
     }
   }
 
