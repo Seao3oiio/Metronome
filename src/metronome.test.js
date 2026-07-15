@@ -323,6 +323,8 @@ test("click tracks are valid looping PCM WAV files", () => {
         bars: [{ beats: [{ steps: [0, 1] }] }],
         loopBar: null,
         sound: "click",
+        beatTrack: false,
+        rhythmTrack: true,
       },
       8000,
       1,
@@ -352,4 +354,36 @@ test("click tracks are valid looping PCM WAV files", () => {
   const samples = new Int16Array(gapWav, 44);
   assert.ok(samples.subarray(0, 2000).some(Boolean));
   assert.ok(samples.subarray(2000).every((sample) => sample === 0));
+});
+
+test("compound playback separates beat pulses from written note onsets", () => {
+  const sampleRate = 8000;
+  const pcm = (bars, beatTrack, rhythmTrack) => new Int16Array(
+    makeClickTrackWav(
+      { bpm: 60, bars, loopBar: null, sound: "click", beatTrack, rhythmTrack },
+      sampleRate,
+    ),
+    44,
+  );
+  const energy = (samples, start) => samples
+    .subarray(start, start + 400)
+    .reduce((sum, sample) => sum + Math.abs(sample), 0);
+
+  const beatOnly = pcm([{ beats: [{ steps: [0] }, { steps: [0] }] }], true, false);
+  assert.ok(energy(beatOnly, 0) > energy(beatOnly, sampleRate));
+  assert.ok(energy(beatOnly, sampleRate) > 0);
+
+  const quarter = pcm([{ beats: [{ steps: [1] }] }], false, true);
+  assert.ok(energy(quarter, 0) > 0);
+  assert.equal(energy(quarter, sampleRate / 2), 0);
+  const both = pcm([{ beats: [{ steps: [1] }] }], true, true);
+  assert.equal(both.findIndex(Boolean), beatOnly.findIndex(Boolean));
+  assert.equal(both.findIndex(Boolean), quarter.findIndex(Boolean));
+
+  const eighths = pcm([{ beats: [{ steps: [1, 1] }] }], false, true);
+  assert.ok(energy(eighths, 0) > 0);
+  assert.ok(energy(eighths, sampleRate / 2) > 0);
+
+  const rest = pcm([{ beats: [{ steps: [0] }] }], false, true);
+  assert.ok(rest.every((sample) => sample === 0));
 });

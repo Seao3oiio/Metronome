@@ -11,6 +11,13 @@ const TRACK_SOUNDS = {
   soft: { accent: 940, normal: 720, duration: 0.04 },
 };
 
+export const RHYTHM_TRACK_SOUNDS = {
+  click: "drum",
+  wood: "soft",
+  drum: "click",
+  soft: "wood",
+};
+
 const GAP_RANGES = {
   easy: { sound: [3, 5], mute: [1, 1] },
   medium: { sound: [2, 4], mute: [1, 2] },
@@ -330,38 +337,67 @@ export function rhythmEventIndexAtTime(seconds, bpm, plan) {
 }
 
 export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapPattern = []) {
-  const { bpm, bars, loopBar, sound } = settings;
-  const note = TRACK_SOUNDS[sound] ?? TRACK_SOUNDS.click;
+  const {
+    bpm,
+    bars,
+    loopBar,
+    sound = "click",
+    beatTrack = true,
+    rhythmTrack = true,
+  } = settings;
+  const beatSound = TRACK_SOUNDS[sound] ? sound : "click";
+  const rhythmSound = RHYTHM_TRACK_SOUNDS[beatSound];
   const plan = compileRhythm(bars, loopBar, 1, gapPattern);
   const beatSeconds = 60 / bpm;
   const frames = Math.ceil(cycles * plan.totalTicks * beatSeconds * sampleRate);
   const samples = new Float32Array(frames);
+
+  const renderClick = (start, trackSound, frequency, velocity) => {
+    const note = TRACK_SOUNDS[trackSound];
+    const length = Math.ceil(note.duration * sampleRate);
+    for (let index = 0; index < length; index += 1) {
+      const time = index / sampleRate;
+      const phase = 2 * Math.PI * frequency * time;
+      const wave =
+        trackSound === "click"
+          ? (2 / Math.PI) * Math.asin(Math.sin(phase))
+          : trackSound === "wood"
+            ? (Math.sin(phase) + 0.35 * Math.sin(phase * 3)) / 1.35
+            : Math.sin(
+                trackSound === "drum"
+                  ? phase * (1.8 - 0.8 * time / note.duration)
+                  : phase,
+              );
+      const envelope = Math.min(1, time / 0.001) * Math.exp(-6 * time / note.duration);
+      samples[(start + index) % frames] += wave * envelope * velocity * 0.75;
+    }
+  };
 
   for (let cycle = 0; cycle < cycles; cycle += 1) {
     for (const event of plan.events) {
       if (event.gap) continue;
       const beat = bars[event.bar]?.beats[event.beat];
       const step = beat?.steps[event.sub] ?? 0;
-      if (!step) continue;
-
-      const frequency = step === 2 ? note.accent : note.normal;
-      const velocity = step === 2 ? 1 : 0.74;
       const start = Math.round(
         (cycle * plan.totalTicks + event.ticks) * beatSeconds * sampleRate,
       );
-      const length = Math.ceil(note.duration * sampleRate);
-
-      for (let index = 0; index < length; index += 1) {
-        const time = index / sampleRate;
-        const phase = 2 * Math.PI * frequency * time;
-        const wave =
-          sound === "click"
-            ? (2 / Math.PI) * Math.asin(Math.sin(phase))
-            : sound === "wood"
-              ? (Math.sin(phase) + 0.35 * Math.sin(phase * 3)) / 1.35
-              : Math.sin(sound === "drum" ? phase * (1.8 - 0.8 * time / note.duration) : phase);
-        const envelope = Math.min(1, time / 0.001) * Math.exp(-6 * time / note.duration);
-        samples[(start + index) % frames] += wave * envelope * velocity * 0.75;
+      if (beatTrack && event.sub === 0) {
+        const note = TRACK_SOUNDS[beatSound];
+        renderClick(
+          start,
+          beatSound,
+          event.beat === 0 ? note.accent : note.normal,
+          event.beat === 0 ? 1 : 0.74,
+        );
+      }
+      if (rhythmTrack && step > 0) {
+        const note = TRACK_SOUNDS[rhythmSound];
+        renderClick(
+          start,
+          rhythmSound,
+          step === 2 ? note.accent : note.normal,
+          step === 2 ? 0.58 : 0.46,
+        );
       }
     }
     for (const span of plan.barSpans) {

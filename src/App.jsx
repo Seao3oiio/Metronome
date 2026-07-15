@@ -30,6 +30,7 @@ import {
   BPM_MIN,
   MAX_BEATS,
   MAX_SUBDIVISION,
+  RHYTHM_TRACK_SOUNDS,
   advanceMinuteDeadline,
   applyBeatPattern,
   bpmFromTaps,
@@ -105,6 +106,8 @@ const DEFAULT_SETTINGS = {
   bars: null,
   loopBar: null,
   sound: "click",
+  beatTrack: true,
+  rhythmTrack: true,
   trainer: false,
   startBpm: 96,
   targetBpm: 120,
@@ -140,6 +143,8 @@ function loadSettings() {
       bars,
       loopBar,
       sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : "click",
+      beatTrack: saved.beatTrack !== false,
+      rhythmTrack: saved.rhythmTrack !== false,
       startBpm: clampBpm(saved.startBpm ?? saved.bpm ?? 96),
       targetBpm: clampBpm(saved.targetBpm ?? 120),
       changeMode: saved.changeMode === "minute" ? "minute" : "bars",
@@ -436,6 +441,8 @@ function mediaTrackKey(settings, gapPattern) {
   return JSON.stringify([
     settings.bpm,
     settings.sound,
+    settings.beatTrack,
+    settings.rhythmTrack,
     settings.loopBar,
     settings.bars,
     settings.gapClick,
@@ -733,6 +740,8 @@ export default function App() {
                 ...settingsRef.current,
                 bars: [makeBar(bar.beats.length, 1)],
                 loopBar: null,
+                beatTrack: true,
+                rhythmTrack: false,
               }),
             ], { type: "audio/wav" }),
           );
@@ -824,7 +833,10 @@ export default function App() {
               beat: event.beat,
               sub: event.sub,
               pulse: performance.now(),
-              hit: !gapMuted && step > 0,
+              hit: Boolean(
+                !gapMuted &&
+                ((current.beatTrack && event.sub === 0) || (current.rhythmTrack && step > 0)),
+              ),
               gap: gapMuted,
             });
             mediaAudio.lastEvent = eventIndex;
@@ -932,11 +944,24 @@ export default function App() {
           }
         }
 
-        if (!eventGapMuted && step > 0) {
+        if (!eventGapMuted && current.beatTrack && event.sub === 0) {
           const note = SOUND_NOTES[current.sound];
-          const frequency = step === 2 ? note.accent : note.normal;
-          const velocity = step === 2 ? 1 : 0.74;
-          instruments[current.sound].triggerAttackRelease(frequency, note.duration, time, velocity);
+          instruments[current.sound].triggerAttackRelease(
+            event.beat === 0 ? note.accent : note.normal,
+            note.duration,
+            time,
+            event.beat === 0 ? 1 : 0.74,
+          );
+        }
+        if (!eventGapMuted && current.rhythmTrack && step > 0) {
+          const rhythmSound = RHYTHM_TRACK_SOUNDS[current.sound];
+          const note = SOUND_NOTES[rhythmSound];
+          instruments[rhythmSound].triggerAttackRelease(
+            step === 2 ? note.accent : note.normal,
+            note.duration,
+            time,
+            step === 2 ? 0.58 : 0.46,
+          );
         }
 
         Tone.getDraw().schedule(() => {
@@ -946,7 +971,10 @@ export default function App() {
             beat: event.beat,
             sub: event.sub,
             pulse: performance.now(),
-            hit: Boolean(!eventGapMuted && step > 0),
+            hit: Boolean(
+              !eventGapMuted &&
+              ((current.beatTrack && event.sub === 0) || (current.rhythmTrack && step > 0)),
+            ),
             gap: eventGapMuted,
           });
         }, time);
@@ -2056,7 +2084,32 @@ export default function App() {
             </button>
           </div>
 
-          <div className="gap-click" hidden={!advancedRhythm}>
+          <div
+            className="gap-click track-controls"
+            hidden={!advancedRhythm}
+            role="group"
+            aria-label="播放控制"
+          >
+            <button
+              className={settings.beatTrack ? "is-active" : ""}
+              type="button"
+              onClick={() => updateSettings({ beatTrack: !settings.beatTrack })}
+              aria-pressed={settings.beatTrack}
+              title="每拍固定响一次，第一拍重音"
+            >
+              <i className="beat-track-mark" aria-hidden="true" />
+              <span>节拍</span>
+            </button>
+            <button
+              className={settings.rhythmTrack ? "is-active" : ""}
+              type="button"
+              onClick={() => updateSettings({ rhythmTrack: !settings.rhythmTrack })}
+              aria-pressed={settings.rhythmTrack}
+              title="只在实际弹奏的音符起点响"
+            >
+              <i className="rhythm-track-mark" aria-hidden="true" />
+              <span>节奏</span>
+            </button>
             <button
               className={settings.countIn ? "is-active" : ""}
               type="button"
