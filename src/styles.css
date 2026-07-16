@@ -582,21 +582,57 @@ input[type="range"]::-moz-range-thumb {
   gap: 14px;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
 }
 
-.practice-analysis-heading strong,
-.practice-analysis-heading small {
+.analysis-setting-heading {
+  margin-bottom: 0;
+}
+
+.analysis-setting-heading > span > strong,
+.analysis-setting-heading > span > small {
   display: block;
 }
 
-.practice-analysis-heading strong {
+.analysis-setting-heading > span > strong {
   font-size: 14px;
 }
 
-.practice-analysis-heading small {
+.analysis-setting-heading > span > small {
   margin-top: 4px;
   color: var(--muted);
   font-size: 11px;
+  font-weight: 400;
+}
+
+.analysis-mode {
+  display: grid;
+  min-width: 210px;
+  flex: 1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.analysis-mode button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-strong);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.analysis-mode button.is-selected {
+  border-color: rgba(139, 123, 255, 0.36);
+  background: rgba(139, 123, 255, 0.16);
+  color: var(--text);
+}
+
+.analysis-mode button:disabled,
+.advanced-play:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .record-button {

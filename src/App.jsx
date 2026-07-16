@@ -121,6 +121,8 @@ const DEFAULT_SETTINGS = {
   gapClick: false,
   gapDifficulty: "medium",
   countIn: false,
+  rhythmAnalysis: false,
+  analysisLoop: false,
   volume: 72,
   muted: false,
 };
@@ -162,6 +164,8 @@ function loadSettings() {
       trainer: Boolean(saved.trainer),
       gapClick: Boolean(saved.gapClick),
       countIn: Boolean(saved.countIn),
+      rhythmAnalysis: Boolean(saved.rhythmAnalysis),
+      analysisLoop: Boolean(saved.analysisLoop),
       gapDifficulty: GAP_DIFFICULTIES.some(({ value }) => value === saved.gapDifficulty)
         ? saved.gapDifficulty
         : defaults.gapDifficulty,
@@ -749,6 +753,12 @@ export default function App() {
     (message = "已暂停") => {
       const recordingSession = recordingRef.current;
       if (recordingSession && !recordingSession.stopping) {
+        if (recordingSession.loop && recordingSession.rhythmStartedAt) {
+          recordingSession.duration = Math.max(
+            0.1,
+            performance.now() / 1000 - recordingSession.rhythmStartedAt,
+          );
+        }
         recordingSession.stopping = true;
         clearTimeout(recordingSession.timer);
         recordingRef.current = null;
@@ -885,6 +895,7 @@ export default function App() {
           mediaAudio.countInResolve = null;
           mediaAudio.countingIn = false;
           mediaAudio.media.currentTime = 0;
+          mediaAudio.media.loop = practice?.loop !== false;
           mediaAudio.media.volume = mediaAudio.targetVolume;
         }
         mediaAudio.startedAt = performance.now() / 1000;
@@ -894,7 +905,7 @@ export default function App() {
         minuteDeadlineRef.current = 60;
         playingRef.current = true;
         setPlaying(true);
-        setStatus(practice ? "录音中" : "运行中");
+        setStatus(practice?.loop ? "录音中 · 循环" : practice ? "录音中" : "运行中");
 
         const draw = () => {
           if (generationRef.current !== run || !playingRef.current) return;
@@ -1092,14 +1103,14 @@ export default function App() {
         if (enteredBar) barsRef.current += 1;
       }, plan.events.map((event) => [Tone.Ticks(event.ticks), event]));
       part.loopEnd = Tone.Ticks(plan.totalTicks);
-      part.loop = true;
+      part.loop = practice?.loop !== false;
       part.start(Tone.Ticks(countInTicks));
 
       if (countInTicks || practice) {
         transport.scheduleOnce((time) => {
           Tone.getDraw().schedule(() => {
             if (generationRef.current !== run) return;
-            setStatus(practice ? "录音中" : "运行中");
+            setStatus(practice?.loop ? "录音中 · 循环" : practice ? "录音中" : "运行中");
             practice?.onStart?.();
           }, time);
         }, Tone.Ticks(countInTicks));
@@ -1192,10 +1203,8 @@ export default function App() {
       return;
     }
     const cycleDuration = (plan.totalTicks * 60) / snapshot.bpm;
-    const duration = Math.min(
-      120,
-      cycleDuration * Math.max(1, Math.ceil(12 / cycleDuration)),
-    );
+    const loop = settingsRef.current.analysisLoop;
+    const duration = loop ? 120 : Math.min(120, cycleDuration);
     setStatus("请求麦克风权限…");
     let stream;
     try {
@@ -1208,6 +1217,7 @@ export default function App() {
         chunks: [],
         duration,
         key: practiceKey(snapshot),
+        loop,
         recorder,
         recorderStartedAt: performance.now() / 1000,
         rhythmStartedAt: null,
@@ -1265,10 +1275,14 @@ export default function App() {
       setStatus("预备 1 小节");
       playbackIntentRef.current = true;
       await start(true, {
+        loop,
         onStart: () => {
           if (session.stopping) return;
           session.rhythmStartedAt = performance.now() / 1000;
-          session.timer = setTimeout(finishPracticeRecording, duration * 1000 + 200);
+          session.timer = setTimeout(
+            finishPracticeRecording,
+            (loop ? 120 : duration) * 1000 + (loop ? 0 : 120),
+          );
         },
       });
       if (!playingRef.current && !session.stopping) finishPracticeRecording();
@@ -2117,71 +2131,6 @@ export default function App() {
             </button>
           </div>
 
-          <section className="practice-analysis" aria-labelledby="practice-analysis-title">
-            <div className="practice-analysis-heading">
-              <div>
-                <strong id="practice-analysis-title">节奏分析</strong>
-                <small>{recording ? "正在录制当前节奏" : "戴耳机听节拍器，自动对齐"}</small>
-              </div>
-              <button
-                className={`record-button ${recording ? "is-active" : ""}`}
-                type="button"
-                onClick={recording ? finishPracticeRecording : beginPracticeRecording}
-              >
-                {recording ? <Square fill="currentColor" /> : <Mic />}
-                {recording ? "停止并分析" : "录制练习"}
-              </button>
-            </div>
-
-            {analysis ? (
-              <>
-                <div className="analysis-stats">
-                  <span><strong>{analysis.stableRate}%</strong><small>稳定率</small></span>
-                  <span><strong>{Math.round(analysis.meanAbsMs)}ms</strong><small>平均误差</small></span>
-                  <span>
-                    <strong>{analysis.actualBpm ? Math.round(analysis.actualBpm) : "—"}</strong>
-                    <small>实际 BPM</small>
-                  </span>
-                  <span>
-                    <strong>{analysis.missed} / {analysis.extra}</strong>
-                    <small>漏弹 / 多弹</small>
-                  </span>
-                </div>
-                <TimingThumbnail analysis={analysis} />
-                <div className="timing-legend" aria-label="缩略图图例">
-                  <span className="is-steady">准确 {analysis.onTime}</span>
-                  <span className="is-early">提前 {analysis.early}</span>
-                  <span className="is-late">滞后 {analysis.late}</span>
-                  <span className="is-missed">漏弹 {analysis.missed}</span>
-                  <span className="is-extra">多弹 {analysis.extra}</span>
-                </div>
-                <p className="analysis-note">
-                  已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
-                  {previousAnalysis && (
-                    <> 较上次稳定率 {analysis.stableRate - previousAnalysis.stableRate >= 0 ? "+" : ""}{analysis.stableRate - previousAnalysis.stableRate}%，平均误差 {analysis.meanAbsMs - previousAnalysis.meanAbsMs >= 0 ? "+" : ""}{Math.round(analysis.meanAbsMs - previousAnalysis.meanAbsMs)}ms。</>
-                  )}
-                </p>
-              </>
-            ) : (
-              <p className="analysis-empty">一小节预备拍后开始；短节奏会自动重复，长练习最多录制 2 分钟。</p>
-            )}
-
-            <ProgressTrend history={visibleHistory} />
-            {visibleHistory.length > 0 && (
-              <ol className="practice-history" aria-label="最近练习记录">
-                {visibleHistory.slice(-4).reverse().map((item) => (
-                  <li key={item.at}>
-                    <time dateTime={new Date(item.at).toISOString()}>
-                      {new Date(item.at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
-                    </time>
-                    <span>{item.bpm} BPM</span>
-                    <strong>{item.stableRate}%</strong>
-                    <span>{Math.round(item.meanAbsMs)}ms</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
         </section>
 
         <aside
@@ -2411,6 +2360,7 @@ export default function App() {
               type="button"
               onClick={togglePlayback}
               aria-pressed={playing}
+              disabled={recording}
             >
               {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
               <span>{playing ? "暂停" : "开始"}</span>
@@ -2481,6 +2431,115 @@ export default function App() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="setting-block analysis-setting" hidden={!advancedRhythm}>
+            <div className="setting-label analysis-setting-heading">
+              <span>
+                <strong>录音分析</strong>
+                <small>对比当前高级节奏，记录练习进步</small>
+              </span>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.rhythmAnalysis}
+                  onChange={(event) =>
+                    updateSettings({ rhythmAnalysis: event.target.checked })
+                  }
+                  disabled={recording}
+                  aria-label="录音分析"
+                />
+                <span aria-hidden="true" />
+              </label>
+            </div>
+
+            {settings.rhythmAnalysis && (
+              <section className="practice-analysis" aria-label="节奏录音分析">
+                <div className="practice-analysis-heading">
+                  <div className="analysis-mode" role="group" aria-label="节奏播放方式">
+                    <button
+                      className={!settings.analysisLoop ? "is-selected" : ""}
+                      type="button"
+                      onClick={() => updateSettings({ analysisLoop: false })}
+                      disabled={recording}
+                      aria-pressed={!settings.analysisLoop}
+                    >
+                      播放一遍
+                    </button>
+                    <button
+                      className={settings.analysisLoop ? "is-selected" : ""}
+                      type="button"
+                      onClick={() => updateSettings({ analysisLoop: true })}
+                      disabled={recording}
+                      aria-pressed={settings.analysisLoop}
+                    >
+                      循环播放
+                    </button>
+                  </div>
+                  <button
+                    className={`record-button ${recording ? "is-active" : ""}`}
+                    type="button"
+                    onClick={recording ? finishPracticeRecording : beginPracticeRecording}
+                  >
+                    {recording ? <Square fill="currentColor" /> : <Mic />}
+                    {recording ? "停止并分析" : "开始录音"}
+                  </button>
+                </div>
+
+                {analysis ? (
+                  <>
+                    <div className="analysis-stats">
+                      <span><strong>{analysis.stableRate}%</strong><small>稳定率</small></span>
+                      <span><strong>{Math.round(analysis.meanAbsMs)}ms</strong><small>平均误差</small></span>
+                      <span>
+                        <strong>{analysis.actualBpm ? Math.round(analysis.actualBpm) : "—"}</strong>
+                        <small>实际 BPM</small>
+                      </span>
+                      <span>
+                        <strong>{analysis.missed} / {analysis.extra}</strong>
+                        <small>漏弹 / 多弹</small>
+                      </span>
+                    </div>
+                    <TimingThumbnail analysis={analysis} />
+                    <div className="timing-legend" aria-label="缩略图图例">
+                      <span className="is-steady">准确 {analysis.onTime}</span>
+                      <span className="is-early">提前 {analysis.early}</span>
+                      <span className="is-late">滞后 {analysis.late}</span>
+                      <span className="is-missed">漏弹 {analysis.missed}</span>
+                      <span className="is-extra">多弹 {analysis.extra}</span>
+                    </div>
+                    <p className="analysis-note">
+                      已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
+                      {previousAnalysis && (
+                        <> 较上次稳定率 {analysis.stableRate - previousAnalysis.stableRate >= 0 ? "+" : ""}{analysis.stableRate - previousAnalysis.stableRate}%，平均误差 {analysis.meanAbsMs - previousAnalysis.meanAbsMs >= 0 ? "+" : ""}{Math.round(analysis.meanAbsMs - previousAnalysis.meanAbsMs)}ms。</>
+                      )}
+                    </p>
+                  </>
+                ) : (
+                  <p className="analysis-empty">
+                    一小节预备拍后开始；{settings.analysisLoop
+                      ? "循环播放至手动停止，最长 2 分钟。"
+                      : "播放当前节奏一遍后自动分析。"}
+                  </p>
+                )}
+
+                <ProgressTrend history={visibleHistory} />
+                {visibleHistory.length > 0 && (
+                  <ol className="practice-history" aria-label="最近练习记录">
+                    {visibleHistory.slice(-4).reverse().map((item) => (
+                      <li key={item.at}>
+                        <time dateTime={new Date(item.at).toISOString()}>
+                          {new Date(item.at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
+                        </time>
+                        <span>{item.bpm} BPM</span>
+                        <strong>{item.stableRate}%</strong>
+                        <span>{Math.round(item.meanAbsMs)}ms</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+            )}
           </div>
 
           <div className="setting-block rhythm-block" hidden={!advancedRhythm}>
