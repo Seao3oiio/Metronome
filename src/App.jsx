@@ -638,7 +638,7 @@ export default function App() {
   const [settings, setSettings] = useState(loadSettings);
   const [bpmDraft, setBpmDraft] = useState(String(settings.bpm));
   const [playing, setPlaying] = useState(false);
-  const [status, setStatus] = useState("就绪");
+  const [status, setStatusValue] = useState("就绪");
   const [visual, setVisual] = useState({
     bar: 0,
     beat: 0,
@@ -652,6 +652,10 @@ export default function App() {
   const [selectedBarIndexes, setSelectedBarIndexes] = useState([]);
   const [barClipboard, setBarClipboard] = useState([]);
   const [toast, setToast] = useState(null);
+  const setStatus = useCallback((message) => {
+    setStatusValue(message);
+    setToast({ id: Date.now(), message });
+  }, []);
   const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
@@ -1460,7 +1464,7 @@ export default function App() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(null), 1800);
+    const timer = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(timer);
   }, [toast]);
 
@@ -1582,7 +1586,6 @@ export default function App() {
     setSelectedBarIndexes([]);
     setSelectingBars(false);
     setStatus(`${activeBarIndexes.length} 个小节已复制，选择位置后粘贴`);
-    setToast({ id: Date.now(), message: `${activeBarIndexes.length} 个小节已复制` });
   };
 
   const pasteBars = () => {
@@ -1686,7 +1689,6 @@ export default function App() {
       await navigator.clipboard.writeText(code);
       setStatus("节奏编码已复制");
       setShowRhythmCode(false);
-      setToast({ id: Date.now(), message: "节奏编码已复制" });
     } catch {
       setShowRhythmCode(true);
       setStatus("请手动复制编码");
@@ -1828,7 +1830,6 @@ export default function App() {
       setSelectedRhythmId("");
       setRhythmName("");
       setStatus("保存的节奏已删除");
-      setToast({ id: Date.now(), message: "保存的节奏已删除" });
     } catch {
       setStatus("删除失败");
     }
@@ -2994,8 +2995,8 @@ export default function App() {
         </aside>
       </main>
       {toast && (
-        <div className="copy-toast" key={toast.id} role="status" aria-live="polite">
-          <Copy aria-hidden="true" />
+        <div className="status-toast" key={toast.id} role="status" aria-live="polite">
+          <Activity aria-hidden="true" />
           <span>{toast.message}</span>
         </div>
       )}
@@ -3033,7 +3034,6 @@ export default function App() {
                 await navigator.clipboard.writeText(rhythmCode);
                 setStatus("节奏编码已复制");
                 setShowRhythmCode(false);
-                setToast({ id: Date.now(), message: "节奏编码已复制" });
               } catch {
                 setStatus("请手动复制编码");
               }
