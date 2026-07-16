@@ -336,6 +336,252 @@ export function rhythmEventIndexAtTime(seconds, bpm, plan) {
   return index;
 }
 
+export function detectGuitarOnsets(samples, sampleRate) {
+  const frameSize = Math.max(32, Math.round(sampleRate * 0.008));
+  const frameCount = Math.floor(samples.length / frameSize);
+  if (frameCount < 4) return [];
+
+  const levels = new Float32Array(frameCount);
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const start = frame * frameSize;
+    let energy = 0;
+    for (let index = start; index < start + frameSize; index += 1) {
+      const sample = samples[index];
+      energy += sample * sample;
+    }
+    levels[frame] = Math.sqrt(energy / frameSize);
+  }
+
+  const sortedLevels = [...levels].sort((left, right) => left - right);
+  const noiseFloor = sortedLevels[Math.floor(sortedLevels.length * 0.2)] ?? 0;
+  const rises = new Float32Array(frameCount);
+  for (let frame = 1; frame < frameCount; frame += 1) {
+    const start = Math.max(0, frame - 6);
+    let baseline = 0;
+    for (let index = start; index < frame; index += 1) baseline += levels[index];
+    baseline /= frame - start;
+    rises[frame] = Math.max(
+      0,
+      Math.log(levels[frame] + 1e-6) - Math.log(baseline + 1e-6),
+    );
+  }
+
+  const candidates = [];
+  for (let frame = 2; frame < frameCount - 1; frame += 1) {
+    const start = Math.max(1, frame - 25);
+    let localRise = 0;
+    for (let index = start; index < frame; index += 1) localRise += rises[index];
+    localRise /= frame - start;
+    if (
+      levels[frame] > Math.max(0.002, noiseFloor * 3) &&
+      rises[frame] >= rises[frame - 1] &&
+      rises[frame] > rises[frame + 1] &&
+      rises[frame] > Math.max(0.2, localRise * 2.8)
+    ) {
+      candidates.push({ time: (frame * frameSize) / sampleRate, strength: rises[frame] });
+    }
+  }
+
+  const onsets = [];
+  for (const candidate of candidates) {
+    const previous = onsets.at(-1);
+    // ponytail: 50 ms groups one guitar strum; use spectral separation if tremolo faster than this matters.
+    if (!previous || candidate.time - previous.time >= 0.05) onsets.push(candidate);
+    else if (candidate.strength > previous.strength) onsets[onsets.length - 1] = candidate;
+  }
+  return onsets.map(({ time }) => time);
+}
+
+function waveformPeaks(samples, count = 120) {
+  const peaks = Array(count).fill(0);
+  const stride = samples.length / count;
+  for (let bin = 0; bin < count; bin += 1) {
+    const start = Math.floor(bin * stride);
+    const end = Math.max(start + 1, Math.floor((bin + 1) * stride));
+    for (let index = start; index < end && index < samples.length; index += 1) {
+      peaks[bin] = Math.max(peaks[bin], Math.abs(samples[index]));
+    }
+  }
+  const scale = Math.max(...peaks, 1e-6);
+  return peaks.map((peak) => peak / scale);
+}
+
+function expectedRhythmOnsets({ bpm, bars, loopBar }, duration) {
+  const plan = compileRhythm(bars, loopBar, 1);
+  const beatSeconds = 60 / bpm;
+  const cycleDuration = plan.totalTicks * beatSeconds;
+  const cycle = plan.events
+    .filter(({ bar, beat, sub }) => bars[bar].beats[beat].steps[sub] > 0)
+    .map((event) => event.ticks * beatSeconds);
+  const onsets = [];
+  for (let start = 0; start < duration - 1e-6; start += cycleDuration) {
+    cycle.forEach((time) => {
+      if (start + time < duration - 1e-6) onsets.push(start + time);
+    });
+  }
+  return { onsets, cycleDuration };
+}
+
+function matchOnsets(actual, expected, offset, window) {
+  const matches = [];
+  const extras = [];
+  let actualIndex = 0;
+  let expectedIndex = 0;
+
+  while (actualIndex < actual.length && expectedIndex < expected.length) {
+    const expectedTime = expected[expectedIndex];
+    let corrected = actual[actualIndex] - offset;
+    if (corrected < expectedTime - window) {
+      extras.push(actualIndex);
+      actualIndex += 1;
+      continue;
+    }
+    if (corrected > expectedTime + window) {
+      expectedIndex += 1;
+      continue;
+    }
+    while (
+      actualIndex + 1 < actual.length &&
+      Math.abs(actual[actualIndex + 1] - offset - expectedTime) <
+        Math.abs(corrected - expectedTime)
+    ) {
+      extras.push(actualIndex);
+      actualIndex += 1;
+      corrected = actual[actualIndex] - offset;
+    }
+    matches.push({ actualIndex, expectedIndex });
+    actualIndex += 1;
+    expectedIndex += 1;
+  }
+  while (actualIndex < actual.length) extras.push(actualIndex++);
+  return { matches, extras, missed: expected.length - matches.length };
+}
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+export function analyzeRhythmRecording(
+  samples,
+  sampleRate,
+  { bpm, bars, loopBar, rhythmStart = 0, duration },
+) {
+  const beatSeconds = 60 / bpm;
+  const totalDuration = samples.length / sampleRate;
+  const expected = expectedRhythmOnsets({ bpm, bars, loopBar }, duration).onsets;
+  if (!expected.length) throw new Error("当前练习没有需要弹奏的节奏点");
+
+  const detected = detectGuitarOnsets(samples, sampleRate);
+  const actual = detected
+    .filter((time) => time >= rhythmStart - 0.1 && time <= rhythmStart + duration + 0.15)
+    .map((time) => time - rhythmStart);
+  if (!actual.length) throw new Error("没有检测到清晰的吉他起音");
+
+  const gaps = expected.slice(1).map((time, index) => time - expected[index]);
+  const minGap = gaps.length ? Math.min(...gaps.filter((gap) => gap > 1e-6)) : beatSeconds;
+  const tolerance = Math.min(0.08, Math.max(0.025, beatSeconds * 0.06));
+  const matchWindow = Math.max(tolerance * 1.5, Math.min(0.18, minGap * 0.45));
+  const maxOffset = Math.min(0.2, Math.max(0.06, minGap * 0.45));
+  let best = null;
+
+  for (let offset = -maxOffset; offset <= maxOffset + 1e-9; offset += 0.005) {
+    const result = matchOnsets(actual, expected, offset, matchWindow);
+    const error = result.matches.reduce(
+      (sum, pair) =>
+        sum + Math.abs(actual[pair.actualIndex] - offset - expected[pair.expectedIndex]),
+      0,
+    );
+    const score =
+      result.matches.length * 10 -
+      result.missed * 3 -
+      result.extras.length * 2 -
+      error / matchWindow -
+      Math.abs(offset) * 0.01;
+    if (!best || score > best.score) best = { ...result, offset, score };
+  }
+
+  if (!best?.matches.length) throw new Error("录音无法与当前节奏对齐");
+  const refinedOffset = median(
+    best.matches.map(
+      ({ actualIndex, expectedIndex }) => actual[actualIndex] - expected[expectedIndex],
+    ),
+  );
+  best = matchOnsets(actual, expected, refinedOffset, matchWindow);
+  const requiredMatches = Math.min(expected.length, Math.max(2, Math.ceil(expected.length * 0.4)));
+  if (best.matches.length < requiredMatches) throw new Error("录音与当前节奏的匹配度太低");
+
+  const matches = best.matches.map(({ actualIndex, expectedIndex }) => {
+    const deviation = actual[actualIndex] - refinedOffset - expected[expectedIndex];
+    return { actualIndex, expectedIndex, deviation };
+  });
+  const stable = matches.filter(({ deviation }) => Math.abs(deviation) <= tolerance).length;
+  const early = matches.filter(({ deviation }) => deviation < -tolerance).length;
+  const late = matches.filter(({ deviation }) => deviation > tolerance).length;
+  const meanAbsMs =
+    (matches.reduce((sum, { deviation }) => sum + Math.abs(deviation), 0) / matches.length) *
+    1000;
+
+  let actualBpm = null;
+  if (matches.length >= 2) {
+    const points = matches.map(({ actualIndex, expectedIndex }) => ({
+      x: expected[expectedIndex],
+      y: actual[actualIndex],
+    }));
+    const meanX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const meanY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    const variance = points.reduce((sum, point) => sum + (point.x - meanX) ** 2, 0);
+    const slope = variance
+      ? points.reduce((sum, point) => sum + (point.x - meanX) * (point.y - meanY), 0) /
+        variance
+      : 1;
+    if (slope > 0) actualBpm = bpm / slope;
+  }
+
+  const markers = [
+    ...matches.map(({ actualIndex, deviation }) => ({
+      position: Math.min(1, Math.max(0, (rhythmStart + actual[actualIndex]) / totalDuration)),
+      kind: Math.abs(deviation) <= tolerance ? "steady" : deviation < 0 ? "early" : "late",
+    })),
+    ...best.extras.map((actualIndex) => ({
+      position: Math.min(1, Math.max(0, (rhythmStart + actual[actualIndex]) / totalDuration)),
+      kind: "extra",
+    })),
+    ...expected.flatMap((time, expectedIndex) =>
+      best.matches.some((match) => match.expectedIndex === expectedIndex)
+        ? []
+        : [{
+            position: Math.min(
+              1,
+              Math.max(0, (rhythmStart + time + refinedOffset) / totalDuration),
+            ),
+            kind: "missed",
+          }],
+    ),
+  ];
+
+  return {
+    actualBpm,
+    calibrationMs: refinedOffset * 1000,
+    detectedCount: actual.length,
+    early,
+    expectedCount: expected.length,
+    extra: best.extras.length,
+    late,
+    markers,
+    matchedCount: matches.length,
+    meanAbsMs,
+    missed: best.missed,
+    onTime: stable,
+    peaks: waveformPeaks(samples),
+    stableRate: Math.round((stable / matches.length) * 100),
+    toleranceMs: tolerance * 1000,
+  };
+}
+
 export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapPattern = []) {
   const {
     bpm,

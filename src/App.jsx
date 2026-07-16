@@ -9,6 +9,7 @@ import {
   Download,
   Hand,
   ListChecks,
+  Mic,
   Minus,
   Pause,
   Play,
@@ -17,6 +18,7 @@ import {
   Redo2,
   Save,
   Share2,
+  Square,
   Trash2,
   Undo2,
   Volume2,
@@ -32,6 +34,7 @@ import {
   MAX_SUBDIVISION,
   RHYTHM_TRACK_SOUNDS,
   advanceMinuteDeadline,
+  analyzeRhythmRecording,
   applyBeatPattern,
   bpmFromTaps,
   clampBpm,
@@ -61,6 +64,7 @@ import {
 import { clonePracticeRhythm, PRACTICE_PRESET_WEEKS } from "./practicePresets.js";
 
 const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
+const PRACTICE_HISTORY_KEY = "pulse-practice-history-v1";
 const TUTORIAL_PREFIX = "tutorial:";
 const PRACTICE_PRESETS = PRACTICE_PRESET_WEEKS.flatMap((week) =>
   week.exercises.flatMap((exercise) =>
@@ -192,6 +196,91 @@ function loadRhythmLibrary() {
   } catch {
     return [];
   }
+}
+
+function practiceKey({ beatUnit, bars, loopBar }) {
+  return JSON.stringify([beatUnit, bars, loopBar]);
+}
+
+function loadPracticeHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PRACTICE_HISTORY_KEY));
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .filter(
+        (item) =>
+          typeof item?.key === "string" &&
+          Number.isFinite(item?.at) &&
+          Number.isFinite(item?.bpm) &&
+          Number.isFinite(item?.stableRate) &&
+          Number.isFinite(item?.meanAbsMs),
+      )
+      .slice(-200);
+  } catch {
+    return [];
+  }
+}
+
+function TimingThumbnail({ analysis }) {
+  return (
+    <svg
+      className="timing-thumbnail"
+      viewBox="0 0 120 44"
+      role="img"
+      aria-label="录音波形和节奏偏差缩略图"
+      preserveAspectRatio="none"
+    >
+      <line className="waveform-axis" x1="0" y1="22" x2="120" y2="22" />
+      {analysis.peaks.map((peak, index) => (
+        <line
+          className="waveform-peak"
+          key={index}
+          x1={index + 0.5}
+          x2={index + 0.5}
+          y1={22 - peak * 15}
+          y2={22 + peak * 15}
+        />
+      ))}
+      {analysis.markers.map((marker, index) => (
+        <line
+          className={`timing-marker is-${marker.kind}`}
+          key={`${marker.kind}-${index}`}
+          x1={marker.position * 120}
+          x2={marker.position * 120}
+          y1="3"
+          y2="41"
+        />
+      ))}
+    </svg>
+  );
+}
+
+function ProgressTrend({ history }) {
+  if (history.length < 2) return null;
+  const values = history.slice(-8);
+  const points = values
+    .map((item, index) => {
+      const x = values.length === 1 ? 50 : (index / (values.length - 1)) * 100;
+      const y = 28 - (item.stableRate / 100) * 24;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <div className="progress-trend">
+      <span>最近 {values.length} 次稳定率</span>
+      <svg viewBox="0 0 100 32" role="img" aria-label="历史稳定率趋势">
+        <polyline points={points} />
+        {values.map((item, index) => (
+          <circle
+            key={item.at}
+            cx={values.length === 1 ? 50 : (index / (values.length - 1)) * 100}
+            cy={28 - (item.stableRate / 100) * 24}
+            r="2"
+          />
+        ))}
+      </svg>
+    </div>
+  );
 }
 
 function cloneBeat(beat) {
@@ -565,6 +654,9 @@ export default function App() {
   const [showRhythmCode, setShowRhythmCode] = useState(false);
   const [rhythmCode, setRhythmCode] = useState("");
   const [savedRhythms, setSavedRhythms] = useState(loadRhythmLibrary);
+  const [practiceHistory, setPracticeHistory] = useState(loadPracticeHistory);
+  const [analysis, setAnalysis] = useState(null);
+  const [recording, setRecording] = useState(false);
   const [selectedRhythmId, setSelectedRhythmId] = useState("");
   const [rhythmName, setRhythmName] = useState("");
   const [advancedRhythm, setAdvancedRhythm] = useState(
@@ -587,11 +679,16 @@ export default function App() {
   const bpmEditingRef = useRef(false);
   const generationRef = useRef(0);
   const audioRef = useRef(null);
+  const recordingRef = useRef(null);
   const installDialogRef = useRef(null);
   const rhythmDialogRef = useRef(null);
   const isIOS = isIOSDevice();
 
   const updateSettings = useCallback((patch, recordHistory = true) => {
+    if (recordingRef.current) {
+      setStatus("请先完成录音");
+      return;
+    }
     const current = settingsRef.current;
     const rhythmChanged =
       ("bars" in patch && patch.bars !== current.bars) ||
@@ -610,6 +707,7 @@ export default function App() {
     }
 
     const next = { ...current, ...patch };
+    if (rhythmChanged || "bpm" in patch) setAnalysis(null);
     settingsRef.current = next;
     setSettings((current) => ({ ...current, ...patch }));
     if (audioRef.current?.media && playingRef.current) {
@@ -649,6 +747,16 @@ export default function App() {
 
   const stop = useCallback(
     (message = "已暂停") => {
+      const recordingSession = recordingRef.current;
+      if (recordingSession && !recordingSession.stopping) {
+        recordingSession.stopping = true;
+        clearTimeout(recordingSession.timer);
+        recordingRef.current = null;
+        setRecording(false);
+        if (recordingSession.recorder.state !== "inactive") recordingSession.recorder.stop();
+        recordingSession.stream.getTracks().forEach((track) => track.stop());
+        message = recordingSession.rhythmStartedAt ? "正在分析…" : "录音已取消";
+      }
       generationRef.current += 1;
       playbackIntentRef.current = false;
       playingRef.current = false;
@@ -679,7 +787,7 @@ export default function App() {
     setStatus(direction === "undo" ? "已撤销" : "已重做");
   };
 
-  const start = useCallback(async (preserveTempo = false) => {
+  const start = useCallback(async (preserveTempo = false, practice = null) => {
     if (startingRef.current || playingRef.current) return;
     startingRef.current = true;
     setStatus("开启声音…");
@@ -694,11 +802,11 @@ export default function App() {
         setSettings((current) => ({ ...current, bpm }));
       }
 
-      const gapPattern = makeActiveGapPattern(settingsRef.current);
+      const gapPattern = practice ? [] : makeActiveGapPattern(settingsRef.current);
 
       let mediaAudio = null;
       if (isIOS) {
-        const countingIn = settingsRef.current.countIn && !preserveTempo;
+        const countingIn = Boolean(practice) || (settingsRef.current.countIn && !preserveTempo);
         const media = new Audio();
         media.loop = true;
         media.preload = "auto";
@@ -780,12 +888,13 @@ export default function App() {
           mediaAudio.media.volume = mediaAudio.targetVolume;
         }
         mediaAudio.startedAt = performance.now() / 1000;
+        practice?.onStart?.();
 
         barsRef.current = 0;
         minuteDeadlineRef.current = 60;
         playingRef.current = true;
         setPlaying(true);
-        setStatus("运行中");
+        setStatus(practice ? "录音中" : "运行中");
 
         const draw = () => {
           if (generationRef.current !== run || !playingRef.current) return;
@@ -810,10 +919,11 @@ export default function App() {
             const gapMuted = Boolean(event.gap);
             const elapsed = performance.now() / 1000 - mediaAudio.startedAt;
             const nextMinuteDeadline =
-              current.trainer && current.changeMode === "minute"
+              !practice && current.trainer && current.changeMode === "minute"
                 ? advanceMinuteDeadline(elapsed, minuteDeadlineRef.current)
                 : null;
             const barsDue =
+              !practice &&
               current.trainer &&
               current.changeMode === "bars" &&
               enteredBar &&
@@ -874,7 +984,7 @@ export default function App() {
         settingsRef.current.bars.length,
       );
       const countInBarIndex = loopRange?.[0] ?? 0;
-      const countInBeats = settingsRef.current.countIn && !preserveTempo
+      const countInBeats = practice || (settingsRef.current.countIn && !preserveTempo)
         ? settingsRef.current.bars[countInBarIndex].beats.length
         : 0;
       const countInTicks = countInBeats * transport.PPQ;
@@ -929,7 +1039,7 @@ export default function App() {
           barsRef.current > 0 &&
           barsRef.current % current.changeEvery === 0;
 
-        if (current.trainer && (barsDue || nextMinuteDeadline !== null)) {
+        if (!practice && current.trainer && (barsDue || nextMinuteDeadline !== null)) {
           if (nextMinuteDeadline !== null) minuteDeadlineRef.current = nextMinuteDeadline;
           const nextBpm = nextTrainingBpm(current.bpm, current.targetBpm, current.changeAmount);
           if (nextBpm !== current.bpm) {
@@ -985,10 +1095,12 @@ export default function App() {
       part.loop = true;
       part.start(Tone.Ticks(countInTicks));
 
-      if (countInTicks) {
+      if (countInTicks || practice) {
         transport.scheduleOnce((time) => {
           Tone.getDraw().schedule(() => {
-            if (generationRef.current === run) setStatus("运行中");
+            if (generationRef.current !== run) return;
+            setStatus(practice ? "录音中" : "运行中");
+            practice?.onStart?.();
           }, time);
         }, Tone.Ticks(countInTicks));
       }
@@ -1049,6 +1161,125 @@ export default function App() {
     }
   }, [refreshPlayback, start, stop]);
 
+  const finishPracticeRecording = useCallback(() => {
+    if (recordingRef.current) stop();
+  }, [stop]);
+
+  const beginPracticeRecording = useCallback(async () => {
+    if (
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof window.MediaRecorder !== "function"
+    ) {
+      setStatus("当前浏览器不支持录音");
+      return;
+    }
+
+    if (playbackIntentRef.current) stop("准备录音");
+    setAnalysis(null);
+    const snapshot = {
+      bpm: settingsRef.current.bpm,
+      beatUnit: settingsRef.current.beatUnit,
+      bars: settingsRef.current.bars,
+      loopBar: settingsRef.current.loopBar,
+    };
+    const plan = compileRhythm(snapshot.bars, snapshot.loopBar, 1);
+    if (
+      !plan.events.some(
+        ({ bar, beat, sub }) => snapshot.bars[bar].beats[beat].steps[sub] > 0,
+      )
+    ) {
+      setStatus("当前练习没有需要弹奏的节奏点");
+      return;
+    }
+    const cycleDuration = (plan.totalTicks * 60) / snapshot.bpm;
+    const duration = Math.min(
+      120,
+      cycleDuration * Math.max(1, Math.ceil(12 / cycleDuration)),
+    );
+    setStatus("请求麦克风权限…");
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      const recorder = new window.MediaRecorder(stream);
+      const session = {
+        cancelled: false,
+        chunks: [],
+        duration,
+        key: practiceKey(snapshot),
+        recorder,
+        recorderStartedAt: performance.now() / 1000,
+        rhythmStartedAt: null,
+        settings: snapshot,
+        stopping: false,
+        stream,
+        timer: null,
+      };
+
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size) session.chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", async () => {
+        if (session.cancelled || !session.rhythmStartedAt || !session.chunks.length) return;
+        let context;
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          context = new AudioContextClass();
+          const buffer = await context.decodeAudioData(
+            await new Blob(session.chunks, { type: recorder.mimeType }).arrayBuffer(),
+          );
+          const samples = new Float32Array(buffer.length);
+          for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+            const data = buffer.getChannelData(channel);
+            for (let index = 0; index < data.length; index += 1) {
+              samples[index] += data[index] / buffer.numberOfChannels;
+            }
+          }
+          const result = analyzeRhythmRecording(samples, buffer.sampleRate, {
+            ...session.settings,
+            rhythmStart: session.rhythmStartedAt - session.recorderStartedAt,
+            duration: session.duration,
+          });
+          const record = {
+            actualBpm: result.actualBpm,
+            at: Date.now(),
+            bpm: session.settings.bpm,
+            key: session.key,
+            meanAbsMs: result.meanAbsMs,
+            stableRate: result.stableRate,
+          };
+          setAnalysis({ ...result, key: session.key, record });
+          setPracticeHistory((current) => [...current, record].slice(-200));
+          setStatus(`分析完成 · 稳定率 ${result.stableRate}%`);
+        } catch (error) {
+          setStatus(`分析失败：${error.message}`);
+        } finally {
+          await context?.close();
+        }
+      });
+
+      recorder.start();
+      recordingRef.current = session;
+      setRecording(true);
+      setStatus("预备 1 小节");
+      playbackIntentRef.current = true;
+      await start(true, {
+        onStart: () => {
+          if (session.stopping) return;
+          session.rhythmStartedAt = performance.now() / 1000;
+          session.timer = setTimeout(finishPracticeRecording, duration * 1000 + 200);
+        },
+      });
+      if (!playingRef.current && !session.stopping) finishPracticeRecording();
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      recordingRef.current = null;
+      setRecording(false);
+      setStatus(error.name === "NotAllowedError" ? "需要麦克风权限才能录音" : "无法开始录音");
+    }
+  }, [finishPracticeRecording, start, stop]);
+
   const tapTempo = useCallback(() => {
     const now = performance.now();
     const previous = tapsRef.current.at(-1);
@@ -1086,6 +1317,14 @@ export default function App() {
       if (Math.round(bpm.value) !== settings.bpm) bpm.value = settings.bpm;
     }
   }, [settings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRACTICE_HISTORY_KEY, JSON.stringify(practiceHistory));
+    } catch {
+      // Practice analysis still works when private browsing denies storage.
+    }
+  }, [practiceHistory]);
 
   useEffect(() => {
     if (advancedRhythm && playing) setEditorBarIndex(visual.bar);
@@ -1143,6 +1382,14 @@ export default function App() {
 
   useEffect(
     () => () => {
+      const recordingSession = recordingRef.current;
+      if (recordingSession) {
+        recordingSession.cancelled = true;
+        clearTimeout(recordingSession.timer);
+        if (recordingSession.recorder.state !== "inactive") recordingSession.recorder.stop();
+        recordingSession.stream.getTracks().forEach((track) => track.stop());
+        recordingRef.current = null;
+      }
       generationRef.current += 1;
       playbackIntentRef.current = false;
       playingRef.current = false;
@@ -1635,6 +1882,15 @@ export default function App() {
     Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
       48 +
     44;
+  const visibleHistory = practiceHistory
+    .filter(({ key }) => key === (analysis?.key ?? practiceKey(settings)))
+    .slice(-8);
+  const analysisHistoryIndex = analysis
+    ? visibleHistory.findIndex(({ at }) => at === analysis.record.at)
+    : -1;
+  const previousAnalysis = analysisHistoryIndex > 0
+    ? visibleHistory[analysisHistoryIndex - 1]
+    : null;
 
   useEffect(() => {
     const handleEditorShortcut = (event) => {
@@ -1695,7 +1951,7 @@ export default function App() {
   };
 
   return (
-    <div className={`app-shell ${playing ? "is-playing" : ""}`}>
+    <div className={`app-shell ${playing ? "is-playing" : ""} ${recording ? "is-recording" : ""}`}>
       <header className="topbar">
         <a className="brand" href="#main" aria-label="Pulse 节拍器首页">
           <span className="brand-mark" aria-hidden="true">
@@ -1709,9 +1965,13 @@ export default function App() {
             {status}
           </div>
           {playing && (
-            <button className="topbar-stop" type="button" onClick={() => stop()}>
+            <button
+              className="topbar-stop"
+              type="button"
+              onClick={recording ? finishPracticeRecording : () => stop()}
+            >
               <Pause fill="currentColor" />
-              暂停
+              {recording ? "结束录音" : "暂停"}
             </button>
           )}
         </div>
@@ -1840,15 +2100,88 @@ export default function App() {
               onClick={togglePlayback}
               aria-pressed={playing}
               aria-keyshortcuts="Space"
+              disabled={recording}
             >
               {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
               <span>{playing ? "暂停" : "开始"}</span>
             </button>
-            <button className="tap-button" type="button" onClick={tapTempo} aria-keyshortcuts="T">
+            <button
+              className="tap-button"
+              type="button"
+              onClick={tapTempo}
+              aria-keyshortcuts="T"
+              disabled={recording}
+            >
               <Hand />
               <span>Tap</span>
             </button>
           </div>
+
+          <section className="practice-analysis" aria-labelledby="practice-analysis-title">
+            <div className="practice-analysis-heading">
+              <div>
+                <strong id="practice-analysis-title">节奏分析</strong>
+                <small>{recording ? "正在录制当前节奏" : "戴耳机听节拍器，自动对齐"}</small>
+              </div>
+              <button
+                className={`record-button ${recording ? "is-active" : ""}`}
+                type="button"
+                onClick={recording ? finishPracticeRecording : beginPracticeRecording}
+              >
+                {recording ? <Square fill="currentColor" /> : <Mic />}
+                {recording ? "停止并分析" : "录制练习"}
+              </button>
+            </div>
+
+            {analysis ? (
+              <>
+                <div className="analysis-stats">
+                  <span><strong>{analysis.stableRate}%</strong><small>稳定率</small></span>
+                  <span><strong>{Math.round(analysis.meanAbsMs)}ms</strong><small>平均误差</small></span>
+                  <span>
+                    <strong>{analysis.actualBpm ? Math.round(analysis.actualBpm) : "—"}</strong>
+                    <small>实际 BPM</small>
+                  </span>
+                  <span>
+                    <strong>{analysis.missed} / {analysis.extra}</strong>
+                    <small>漏弹 / 多弹</small>
+                  </span>
+                </div>
+                <TimingThumbnail analysis={analysis} />
+                <div className="timing-legend" aria-label="缩略图图例">
+                  <span className="is-steady">准确 {analysis.onTime}</span>
+                  <span className="is-early">提前 {analysis.early}</span>
+                  <span className="is-late">滞后 {analysis.late}</span>
+                  <span className="is-missed">漏弹 {analysis.missed}</span>
+                  <span className="is-extra">多弹 {analysis.extra}</span>
+                </div>
+                <p className="analysis-note">
+                  已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
+                  {previousAnalysis && (
+                    <> 较上次稳定率 {analysis.stableRate - previousAnalysis.stableRate >= 0 ? "+" : ""}{analysis.stableRate - previousAnalysis.stableRate}%，平均误差 {analysis.meanAbsMs - previousAnalysis.meanAbsMs >= 0 ? "+" : ""}{Math.round(analysis.meanAbsMs - previousAnalysis.meanAbsMs)}ms。</>
+                  )}
+                </p>
+              </>
+            ) : (
+              <p className="analysis-empty">一小节预备拍后开始；短节奏会自动重复，长练习最多录制 2 分钟。</p>
+            )}
+
+            <ProgressTrend history={visibleHistory} />
+            {visibleHistory.length > 0 && (
+              <ol className="practice-history" aria-label="最近练习记录">
+                {visibleHistory.slice(-4).reverse().map((item) => (
+                  <li key={item.at}>
+                    <time dateTime={new Date(item.at).toISOString()}>
+                      {new Date(item.at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
+                    </time>
+                    <span>{item.bpm} BPM</span>
+                    <strong>{item.stableRate}%</strong>
+                    <span>{Math.round(item.meanAbsMs)}ms</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
         </section>
 
         <aside

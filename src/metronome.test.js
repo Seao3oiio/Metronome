@@ -7,12 +7,14 @@ import { musicXmlToRhythm } from "./musicXml.js";
 import {
   BEAT_UNITS,
   advanceMinuteDeadline,
+  analyzeRhythmRecording,
   applyBeatPattern,
   bpmFromTaps,
   clampBpm,
   compileRhythm,
   cycleBeatState,
   decodeRhythm,
+  detectGuitarOnsets,
   encodeRhythm,
   makeClickTrackWav,
   makeGapPattern,
@@ -247,6 +249,33 @@ test("mixed subdivisions return to exact beat and bar boundaries", () => {
     [1, 2],
   );
   assert.equal(rhythmEventIndexAtTime(0.5, 120, compileRhythm([makeBar(2, 1)], null, 1)), 1);
+});
+
+test("guitar timing analysis detects attacks, aligns latency, and flags an extra note", () => {
+  const sampleRate = 8000;
+  const samples = new Float32Array(sampleRate * 3);
+  [0.23, 0.42, 0.74, 1.19, 1.78].forEach((onset) => {
+    const start = Math.round(onset * sampleRate);
+    for (let index = 0; index < sampleRate * 0.12; index += 1) {
+      const time = index / sampleRate;
+      samples[start + index] +=
+        0.8 * Math.exp(-time * 28) * Math.sin(2 * Math.PI * 220 * time);
+    }
+  });
+
+  assert.equal(detectGuitarOnsets(samples, sampleRate).length, 5);
+  const analysis = analyzeRhythmRecording(samples, sampleRate, {
+    bpm: 120,
+    bars: [makeBar(4, 1)],
+    loopBar: null,
+    rhythmStart: 0.2,
+    duration: 2,
+  });
+  assert.equal(analysis.matchedCount, 4);
+  assert.equal(analysis.extra, 1);
+  assert.equal(analysis.missed, 0);
+  assert.equal(Math.round(analysis.calibrationMs), 30);
+  assert.equal(analysis.stableRate, 50);
 });
 
 test("rhythm codes round-trip and reject malformed data", () => {
