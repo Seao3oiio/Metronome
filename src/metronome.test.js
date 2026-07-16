@@ -278,6 +278,30 @@ test("guitar timing analysis detects attacks, aligns latency, and flags an extra
   assert.equal(analysis.stableRate, 50);
 });
 
+test("guitar timing analysis rejects dense background transients", () => {
+  const sampleRate = 8000;
+  const samples = new Float32Array(sampleRate * 3);
+  for (let onset = 0.23; onset < 2.2; onset += 0.08) {
+    const start = Math.round(onset * sampleRate);
+    for (let index = 0; index < sampleRate * 0.025; index += 1) {
+      const time = index / sampleRate;
+      samples[start + index] +=
+        0.2 * Math.exp(-time * 100) * Math.sin(2 * Math.PI * 900 * time);
+    }
+  }
+
+  assert.throws(
+    () => analyzeRhythmRecording(samples, sampleRate, {
+      bpm: 120,
+      bars: [makeBar(4, 1)],
+      loopBar: null,
+      rhythmStart: 0.2,
+      duration: 2,
+    }),
+    /没有检测到足够清晰的吉他演奏/,
+  );
+});
+
 test("rhythm codes round-trip and reject malformed data", () => {
   const rhythm = {
     bpm: 108,

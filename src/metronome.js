@@ -512,7 +512,10 @@ export function analyzeRhythmRecording(
   );
   best = matchOnsets(actual, expected, refinedOffset, matchWindow);
   const requiredMatches = Math.min(expected.length, Math.max(2, Math.ceil(expected.length * 0.4)));
-  if (best.matches.length < requiredMatches) throw new Error("录音与当前节奏的匹配度太低");
+  const matchConfidence = best.matches.length / Math.max(expected.length, actual.length);
+  if (best.matches.length < requiredMatches || matchConfidence < 0.5) {
+    throw new Error("没有检测到足够清晰的吉他演奏，请确认已弹奏并尽量使用耳机");
+  }
 
   const matches = best.matches.map(({ actualIndex, expectedIndex }) => {
     const deviation = actual[actualIndex] - refinedOffset - expected[expectedIndex];
