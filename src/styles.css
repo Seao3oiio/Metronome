@@ -900,6 +900,75 @@ input[type="range"]::-moz-range-thumb {
   line-height: 1.6;
 }
 
+.history-comparison {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(139, 123, 255, 0.24);
+  border-radius: 14px;
+  background: rgba(139, 123, 255, 0.055);
+}
+
+.history-comparison-title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.history-comparison-title strong {
+  font-size: 13px;
+}
+
+.history-comparison-title span,
+.history-comparison > p {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.history-comparison > p {
+  margin: 10px 0 0;
+  line-height: 1.6;
+}
+
+.history-deltas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.history-deltas > span {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 9px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.16);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-deltas small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.history-deltas strong {
+  grid-column: 1;
+  font-size: 11px;
+}
+
+.history-deltas em {
+  grid-row: 1 / 3;
+  grid-column: 2;
+  align-self: center;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.history-deltas .is-better { color: var(--cyan); }
+.history-deltas .is-worse { color: #ff8794; }
+
 .progress-trend {
   display: grid;
   grid-template-columns: auto minmax(100px, 1fr);

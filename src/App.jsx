@@ -348,6 +348,68 @@ function ProgressTrend({ history }) {
   );
 }
 
+function HistoryComparison({ current, history }) {
+  const currentIndex = current
+    ? history.findIndex(({ at }) => at === current.at)
+    : history.length - 1;
+  const latest = currentIndex >= 0 ? history[currentIndex] : current ?? history.at(-1);
+  const previous = currentIndex > 0
+    ? history[currentIndex - 1]
+    : currentIndex < 0
+      ? history.at(-1)
+      : null;
+  const stableDelta = previous && latest
+    ? Math.round(latest.stableRate - previous.stableRate)
+    : null;
+  const errorDelta = previous && latest
+    ? Math.round(latest.meanAbsMs - previous.meanAbsMs)
+    : null;
+
+  return (
+    <div className="history-comparison">
+      <div className="history-comparison-title">
+        <strong>历史对比</strong>
+        <span>同一节奏 · 最近 {history.length} 次</span>
+      </div>
+      {previous && latest ? (
+        <div className="history-deltas">
+          <span>
+            <small>稳定率</small>
+            <strong>{previous.stableRate}% → {latest.stableRate}%</strong>
+            <em className={stableDelta >= 0 ? "is-better" : "is-worse"}>
+              {stableDelta > 0 ? "+" : ""}{stableDelta}%
+            </em>
+          </span>
+          <span>
+            <small>平均误差</small>
+            <strong>{Math.round(previous.meanAbsMs)}ms → {Math.round(latest.meanAbsMs)}ms</strong>
+            <em className={errorDelta <= 0 ? "is-better" : "is-worse"}>
+              {errorDelta > 0 ? "+" : ""}{errorDelta}ms
+            </em>
+          </span>
+        </div>
+      ) : (
+        <p>{history.length ? "已记录本次成绩；再练一次相同节奏即可看到变化。" : "完成一次练习后开始记录，同一节奏第二次起显示变化。"}</p>
+      )}
+      <ProgressTrend history={history} />
+      {history.length > 0 && (
+        <ol className="practice-history" aria-label="同一节奏最近练习记录">
+          {history.slice(-4).reverse().map((item) => (
+            <li key={item.at}>
+              <time dateTime={new Date(item.at).toISOString()}>
+                {new Date(item.at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
+              </time>
+              <span>{item.bpm} BPM</span>
+              <strong>{item.stableRate}%</strong>
+              <span>{Math.round(item.meanAbsMs)}ms</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function cloneBeat(beat) {
   return { ...beat, steps: [...beat.steps] };
 }
@@ -1968,12 +2030,6 @@ export default function App() {
   const visibleHistory = practiceHistory
     .filter(({ key }) => key === (analysis?.key ?? practiceKey(settings)))
     .slice(-8);
-  const analysisHistoryIndex = analysis
-    ? visibleHistory.findIndex(({ at }) => at === analysis.record.at)
-    : -1;
-  const previousAnalysis = analysisHistoryIndex > 0
-    ? visibleHistory[analysisHistoryIndex - 1]
-    : null;
   const exportPracticeAudio = () => {
     if (!recordingAudio) return;
     const extension = recordingAudio.blob.type.includes("mp4")
@@ -2600,6 +2656,7 @@ export default function App() {
                         <small>漏弹 / 多弹</small>
                       </span>
                     </div>
+                    <HistoryComparison current={analysis.record} history={visibleHistory} />
                     <TimingThumbnail analysis={analysis} />
                     <div className="timing-legend" aria-label="缩略图图例">
                       <span className="is-steady">准确 {analysis.onTime}</span>
@@ -2611,9 +2668,6 @@ export default function App() {
                     <TimingBreakdown analysis={analysis} />
                     <p className="analysis-note">
                       已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
-                      {previousAnalysis && (
-                        <> 较上次稳定率 {analysis.stableRate - previousAnalysis.stableRate >= 0 ? "+" : ""}{analysis.stableRate - previousAnalysis.stableRate}%，平均误差 {analysis.meanAbsMs - previousAnalysis.meanAbsMs >= 0 ? "+" : ""}{Math.round(analysis.meanAbsMs - previousAnalysis.meanAbsMs)}ms。</>
-                      )}
                     </p>
                   </>
                 ) : (
@@ -2623,22 +2677,7 @@ export default function App() {
                       : "播放当前节奏一遍后自动分析。"}
                   </p>
                 )}
-
-                <ProgressTrend history={visibleHistory} />
-                {visibleHistory.length > 0 && (
-                  <ol className="practice-history" aria-label="最近练习记录">
-                    {visibleHistory.slice(-4).reverse().map((item) => (
-                      <li key={item.at}>
-                        <time dateTime={new Date(item.at).toISOString()}>
-                          {new Date(item.at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
-                        </time>
-                        <span>{item.bpm} BPM</span>
-                        <strong>{item.stableRate}%</strong>
-                        <span>{Math.round(item.meanAbsMs)}ms</span>
-                      </li>
-                    ))}
-                  </ol>
-                )}
+                {!analysis && <HistoryComparison current={null} history={visibleHistory} />}
               </section>
             )}
           </div>
