@@ -45,6 +45,7 @@ import {
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
+  loopRangeFromSelection,
   moveBarSelection,
   normalizeBars,
   normalizeLoopRange,
@@ -420,6 +421,12 @@ function cloneBar(bar) {
 
 function loopStart(range) {
   return range?.[0] ?? 0;
+}
+
+function barIndexesInRange(range) {
+  return range
+    ? Array.from({ length: range[1] - range[0] + 1 }, (_, index) => range[0] + index)
+    : [];
 }
 
 function insertLoopRange(range, index, count) {
@@ -1600,6 +1607,15 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
 
+  const applyQuickRhythm = (patch) => {
+    const resume = playbackIntentRef.current;
+    rhythmRevisionRef.current += 1;
+    updateSettings(patch);
+    if (!resume) return;
+    setStatus("切换节奏…");
+    void refreshPlayback();
+  };
+
   const updateBeat = (barIndex, beatIndex, updater, structural = false) => {
     if (structural && playbackIntentRef.current) stop("节奏已更新");
     const bars = settingsRef.current.bars.map((bar, currentBar) =>
@@ -1676,6 +1692,23 @@ export default function App() {
     setStatus(`${indexes.length} 个小节已删除`);
   };
 
+  const applyBarSelection = (indexes) => {
+    const current = normalizeLoopRange(
+      settingsRef.current.loopBar,
+      settingsRef.current.bars.length,
+    );
+    if (!current) {
+      setSelectedBarIndexes(indexes);
+      return;
+    }
+
+    const range = loopRangeFromSelection(indexes, settingsRef.current.bars.length);
+    setSelectedBarIndexes(barIndexesInRange(range));
+    if (range?.[0] !== current[0] || range?.[1] !== current[1]) {
+      applyQuickRhythm({ loopBar: range });
+    }
+  };
+
   const selectBar = (index, event) => {
     if (event?.shiftKey) {
       const anchor = selectingBars ? selectedBarIndexes.at(0) ?? editorBarIndex : editorBarIndex;
@@ -1683,19 +1716,24 @@ export default function App() {
       const end = Math.max(anchor, index);
       const selected = Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
       setSelectingBars(true);
-      setSelectedBarIndexes(selected);
+      applyBarSelection(selected);
       setEditorBarIndex(index);
       setStatus(`已选择 ${selected.length} 个小节`);
       return;
     }
     if (selectingBars || event?.ctrlKey || event?.metaKey) {
       setSelectingBars(true);
-      setSelectedBarIndexes((selected) => {
-        const current = selectingBars ? selected : [editorBarIndex];
-        return current.includes(index)
+      const loop = normalizeLoopRange(
+        settingsRef.current.loopBar,
+        settingsRef.current.bars.length,
+      );
+      let current = selectingBars ? selectedBarIndexes : barIndexesInRange(loop);
+      if (!current.length) current = [editorBarIndex];
+      applyBarSelection(
+        current.includes(index)
           ? current.filter((selectedIndex) => selectedIndex !== index)
-          : [...current, index].sort((left, right) => left - right);
-      });
+          : [...current, index].sort((left, right) => left - right),
+      );
       setEditorBarIndex(index);
       setStatus("已更新选择");
       return;
@@ -1705,8 +1743,17 @@ export default function App() {
 
   const toggleBarSelection = () => {
     const next = !selectingBars;
-    if (next && playbackIntentRef.current) stop("选择小节");
-    setSelectedBarIndexes(next ? [editorBarIndex] : []);
+    const range = normalizeLoopRange(
+      settingsRef.current.loopBar,
+      settingsRef.current.bars.length,
+    );
+    setSelectedBarIndexes(
+      next && range
+        ? barIndexesInRange(range)
+        : next
+          ? [editorBarIndex]
+          : [],
+    );
     setSelectingBars(next);
     setStatus(next ? "点选要操作的小节" : "就绪");
   };
@@ -1758,7 +1805,6 @@ export default function App() {
   };
 
   const toggleBarLoop = () => {
-    if (playbackIntentRef.current) stop("循环已更新");
     const current = normalizeLoopRange(
       settingsRef.current.loopBar,
       settingsRef.current.bars.length,
@@ -1766,21 +1812,13 @@ export default function App() {
     if (selectingBars && activeBarIndexes.length) {
       const range = [activeBarIndexes[0], activeBarIndexes.at(-1)];
       const matches = current?.[0] === range[0] && current?.[1] === range[1];
-      updateSettings({ loopBar: matches ? null : range });
+      if (!matches) setSelectedBarIndexes(barIndexesInRange(range));
+      applyQuickRhythm({ loopBar: matches ? null : range });
       setStatus(matches ? "循环全部小节" : "循环所选段落");
     } else {
-      updateSettings({ loopBar: current ? null : [editorBarIndex, editorBarIndex] });
+      applyQuickRhythm({ loopBar: current ? null : [editorBarIndex, editorBarIndex] });
       setStatus(current ? "循环全部小节" : "循环当前小节");
     }
-  };
-
-  const applyQuickRhythm = (patch) => {
-    const resume = playbackIntentRef.current;
-    rhythmRevisionRef.current += 1;
-    updateSettings(patch);
-    if (!resume) return;
-    setStatus("切换节奏…");
-    void refreshPlayback();
   };
 
   const changeQuickMeter = (beats) => {
@@ -2000,6 +2038,7 @@ export default function App() {
     selectedLoopRange &&
     loopRange?.[0] === selectedLoopRange[0] &&
     loopRange?.[1] === selectedLoopRange[1];
+
   const loopActionLabel = selectedLoopRange
     ? selectedLoopMatches
       ? "循环全部小节"
@@ -2078,7 +2117,7 @@ export default function App() {
       } else if (command && key === "a") {
         event.preventDefault();
         setSelectingBars(true);
-        setSelectedBarIndexes(settings.bars.map((_, index) => index));
+        applyBarSelection(settings.bars.map((_, index) => index));
         setStatus(`已选择 ${settings.bars.length} 个小节`);
       } else if (event.key === "Escape" && selectingBars) {
         setSelectingBars(false);
@@ -2710,11 +2749,11 @@ export default function App() {
                     key={index}
                     type="button"
                     className={[
-                      index === editorBarIndex ? "is-current" : "",
-                      loopRange && index >= loopRange[0] && index <= loopRange[1]
-                        ? "is-looped"
+                      (selectingBars
+                        ? selectedBarIndexes.includes(index)
+                        : loopRange && index >= loopRange[0] && index <= loopRange[1])
+                        ? "is-selected"
                         : "",
-                      selectingBars && selectedBarIndexes.includes(index) ? "is-selected" : "",
                       playing && !visual.gap && index === visual.bar ? "is-playing" : "",
                     ]
                       .filter(Boolean)
@@ -2940,11 +2979,11 @@ export default function App() {
                   key={barIndex}
                   className={[
                     "bar-preview",
-                    barIndex === editorBarIndex ? "is-current" : "",
-                    loopRange && barIndex >= loopRange[0] && barIndex <= loopRange[1]
-                      ? "is-looped"
+                    (selectingBars
+                      ? selectedBarIndexes.includes(barIndex)
+                      : loopRange && barIndex >= loopRange[0] && barIndex <= loopRange[1])
+                      ? "is-selected"
                       : "",
-                    selectingBars && selectedBarIndexes.includes(barIndex) ? "is-selected" : "",
                     playing && !visual.gap && visual.bar === barIndex ? "is-playing" : "",
                   ]
                     .filter(Boolean)

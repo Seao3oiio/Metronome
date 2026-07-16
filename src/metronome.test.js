@@ -19,6 +19,7 @@ import {
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
+  loopRangeFromSelection,
   moveBarSelection,
   normalizeBars,
   normalizeLoopRange,
@@ -181,6 +182,8 @@ test("rhythm data and tempo training stay predictable", () => {
   assert.equal(normalizeBars(Array.from({ length: 80 }, () => makeBar(1))).length, 80);
   assert.deepEqual(normalizeLoopRange([4, 2], 6), [2, 4]);
   assert.equal(normalizeLoopRange([2, 6], 6), null);
+  assert.deepEqual(loopRangeFromSelection([3, 1, 3], 5), [1, 3]);
+  assert.equal(loopRangeFromSelection([], 5), null);
   const removed = removeBarSelection(
     [makeBar(1), makeBar(2), makeBar(3), makeBar(4)],
     [1, 2],

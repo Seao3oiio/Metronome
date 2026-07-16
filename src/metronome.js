@@ -161,6 +161,13 @@ export function normalizeLoopRange(value, barCount) {
   return start >= 0 && end < barCount ? [start, end] : null;
 }
 
+export function loopRangeFromSelection(selectedIndexes, barCount) {
+  const selected = [...new Set(selectedIndexes)]
+    .filter((index) => Number.isInteger(index) && index >= 0 && index < barCount)
+    .sort((left, right) => left - right);
+  return selected.length ? [selected[0], selected.at(-1)] : null;
+}
+
 export function removeBarSelection(bars, selectedIndexes, loopBar) {
   const selected = [...new Set(selectedIndexes)]
     .filter((index) => Number.isInteger(index) && index >= 0 && index < bars.length)
