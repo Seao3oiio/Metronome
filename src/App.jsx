@@ -32,7 +32,6 @@ import {
   BPM_MIN,
   MAX_BEATS,
   MAX_SUBDIVISION,
-  RHYTHM_TRACK_SOUNDS,
   advanceMinuteDeadline,
   analyzeRhythmRecording,
   applyBeatPattern,
@@ -54,6 +53,7 @@ import {
   removeBarSelection,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
+  soundForRhythmEvent,
   tempoName,
   toggleBeatStep,
 } from "./metronome.js";
@@ -191,7 +191,7 @@ function loadBasicSettings() {
     ...settings,
     bars: settings.bars.length === 1 ? settings.bars : [makeBar(4, 1)],
     loopBar: null,
-    beatTrack: true,
+    beatTrack: false,
     rhythmTrack: true,
     gapClick: false,
     countIn: false,
@@ -1250,7 +1250,7 @@ export default function App() {
           );
         }
         if (!eventGapMuted && current.rhythmTrack && step > 0) {
-          const rhythmSound = RHYTHM_TRACK_SOUNDS[current.sound];
+          const rhythmSound = soundForRhythmEvent(current.sound, current.beatTrack, event.sub);
           const note = SOUND_NOTES[rhythmSound];
           instruments[rhythmSound].triggerAttackRelease(
             step === 2 ? note.accent : note.normal,

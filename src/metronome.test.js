@@ -28,6 +28,7 @@ import {
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   removeBarSelection,
+  soundForRhythmEvent,
   tempoName,
   toggleBeatStep,
 } from "./metronome.js";
@@ -577,4 +578,31 @@ test("compound playback separates beat pulses from written note onsets", () => {
 
   const rest = pcm([{ beats: [{ steps: [0] }] }], false, true);
   assert.ok(rest.every((sample) => sample === 0));
+});
+
+test("single-track rhythm keeps accents and distinguishes onbeats from offbeats", () => {
+  assert.equal(soundForRhythmEvent("click", false, 0), "click");
+  assert.equal(soundForRhythmEvent("click", false, 1), "drum");
+  assert.equal(soundForRhythmEvent("click", true, 0), "drum");
+
+  const pcm = (steps) => new Int16Array(
+    makeClickTrackWav(
+      {
+        bpm: 60,
+        bars: [{ beats: [{ steps }] }],
+        loopBar: null,
+        sound: "click",
+        beatTrack: false,
+        rhythmTrack: true,
+      },
+      8000,
+    ),
+    44,
+  );
+  const energy = (samples) => samples.reduce((sum, sample) => sum + Math.abs(sample), 0);
+  assert.ok(energy(pcm([2])) > energy(pcm([1])));
+
+  const dividedBeat = pcm([1, 1]);
+  assert.ok(dividedBeat.subarray(250, 500).every((sample) => sample === 0));
+  assert.ok(dividedBeat.subarray(4250, 4500).some(Boolean));
 });

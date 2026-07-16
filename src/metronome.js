@@ -11,12 +11,17 @@ const TRACK_SOUNDS = {
   soft: { accent: 940, normal: 720, duration: 0.04 },
 };
 
-export const RHYTHM_TRACK_SOUNDS = {
+const RHYTHM_TRACK_SOUNDS = {
   click: "drum",
   wood: "drum",
   drum: "click",
   soft: "drum",
 };
+
+export function soundForRhythmEvent(sound, layered, subdivision) {
+  const beatSound = TRACK_SOUNDS[sound] ? sound : "click";
+  return layered || subdivision > 0 ? RHYTHM_TRACK_SOUNDS[beatSound] : beatSound;
+}
 
 export function patchModeSettings(profiles, mode, patch) {
   return { ...profiles, [mode]: { ...profiles[mode], ...patch } };
@@ -743,7 +748,6 @@ export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapP
     rhythmTrack = true,
   } = settings;
   const beatSound = TRACK_SOUNDS[sound] ? sound : "click";
-  const rhythmSound = RHYTHM_TRACK_SOUNDS[beatSound];
   const plan = compileRhythm(bars, loopBar, 1, gapPattern);
   const beatSeconds = 60 / bpm;
   const frames = Math.ceil(cycles * plan.totalTicks * beatSeconds * sampleRate);
@@ -788,6 +792,7 @@ export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapP
         );
       }
       if (rhythmTrack && step > 0) {
+        const rhythmSound = soundForRhythmEvent(beatSound, beatTrack, event.sub);
         const note = TRACK_SOUNDS[rhythmSound];
         renderClick(
           start,
