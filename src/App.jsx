@@ -2601,6 +2601,9 @@ export default function App() {
 
             {settings.rhythmAnalysis && (
               <section className="practice-analysis" aria-label="节奏录音分析">
+                <p className="analysis-warning" role="note">
+                  测试中 · 当前功能仍不稳定，暂不建议使用
+                </p>
                 <div className="practice-analysis-heading">
                   <div className="analysis-mode" role="group" aria-label="节奏播放方式">
                     <button

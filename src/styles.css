@@ -577,6 +577,17 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(8, 10, 15, 0.38);
 }
 
+.analysis-warning {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 188, 103, 0.34);
+  border-radius: 11px;
+  background: rgba(255, 188, 103, 0.1);
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .practice-analysis-heading {
   display: flex;
   gap: 14px;
