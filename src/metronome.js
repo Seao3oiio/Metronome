@@ -414,16 +414,30 @@ function expectedRhythmOnsets({ bpm, bars, loopBar }, duration) {
   const plan = compileRhythm(bars, loopBar, 1);
   const beatSeconds = 60 / bpm;
   const cycleDuration = plan.totalTicks * beatSeconds;
+  const barOrder = [...new Set(plan.events.map(({ bar }) => bar))];
   const cycle = plan.events
     .filter(({ bar, beat, sub }) => bars[bar].beats[beat].steps[sub] > 0)
-    .map((event) => event.ticks * beatSeconds);
-  const onsets = [];
-  for (let start = 0; start < duration - 1e-6; start += cycleDuration) {
-    cycle.forEach((time) => {
-      if (start + time < duration - 1e-6) onsets.push(start + time);
+    .map((event) => ({
+      ...event,
+      barOffset: barOrder.indexOf(event.bar),
+      steps: bars[event.bar].beats[event.beat].steps.length,
+      time: event.ticks * beatSeconds,
+    }));
+  const events = [];
+  for (let start = 0, repeat = 0; start < duration - 1e-6; start += cycleDuration, repeat += 1) {
+    cycle.forEach((event) => {
+      if (start + event.time < duration - 1e-6) {
+        events.push({
+          bar: repeat * barOrder.length + event.barOffset + 1,
+          beat: event.beat + 1,
+          step: event.sub + 1,
+          steps: event.steps,
+          time: start + event.time,
+        });
+      }
     });
   }
-  return { onsets, cycleDuration };
+  return { events, onsets: events.map(({ time }) => time) };
 }
 
 function matchOnsets(actual, expected, offset, window) {
@@ -476,7 +490,8 @@ export function analyzeRhythmRecording(
 ) {
   const beatSeconds = 60 / bpm;
   const totalDuration = samples.length / sampleRate;
-  const expected = expectedRhythmOnsets({ bpm, bars, loopBar }, duration).onsets;
+  const rhythm = expectedRhythmOnsets({ bpm, bars, loopBar }, duration);
+  const expected = rhythm.onsets;
   if (!expected.length) throw new Error("当前练习没有需要弹奏的节奏点");
 
   const gaps = expected.slice(1).map((time, index) => time - expected[index]);
@@ -527,6 +542,26 @@ export function analyzeRhythmRecording(
     const deviation = actual[actualIndex] - refinedOffset - expected[expectedIndex];
     return { actualIndex, expectedIndex, deviation };
   });
+  const matchByExpected = new Map(matches.map((match) => [match.expectedIndex, match]));
+  const timingBars = rhythm.events.reduce((groups, event, expectedIndex) => {
+    const match = matchByExpected.get(expectedIndex);
+    const kind = !match
+      ? "missed"
+      : Math.abs(match.deviation) <= tolerance
+        ? "steady"
+        : match.deviation < 0
+          ? "early"
+          : "late";
+    if (groups.at(-1)?.number !== event.bar) groups.push({ number: event.bar, hits: [] });
+    groups.at(-1).hits.push({
+      beat: event.beat,
+      deviationMs: match ? match.deviation * 1000 : null,
+      kind,
+      step: event.step,
+      steps: event.steps,
+    });
+    return groups;
+  }, []);
   const stable = matches.filter(({ deviation }) => Math.abs(deviation) <= tolerance).length;
   const early = matches.filter(({ deviation }) => deviation < -tolerance).length;
   const late = matches.filter(({ deviation }) => deviation > tolerance).length;
@@ -560,7 +595,7 @@ export function analyzeRhythmRecording(
       kind: "extra",
     })),
     ...expected.flatMap((time, expectedIndex) =>
-      best.matches.some((match) => match.expectedIndex === expectedIndex)
+      matchByExpected.has(expectedIndex)
         ? []
         : [{
             position: Math.min(
@@ -587,6 +622,7 @@ export function analyzeRhythmRecording(
     onTime: stable,
     peaks: waveformPeaks(samples),
     stableRate: Math.round((stable / matches.length) * 100),
+    timingBars,
     toleranceMs: tolerance * 1000,
   };
 }

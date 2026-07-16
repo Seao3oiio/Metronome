@@ -266,7 +266,7 @@ test("guitar timing analysis detects attacks, aligns latency, and flags an extra
   assert.equal(detectGuitarOnsets(samples, sampleRate).length, 5);
   const analysis = analyzeRhythmRecording(samples, sampleRate, {
     bpm: 120,
-    bars: [makeBar(4, 1)],
+    bars: [makeBar(2, 1), makeBar(2, 1)],
     loopBar: null,
     rhythmStart: 0.2,
     duration: 2,
@@ -276,6 +276,17 @@ test("guitar timing analysis detects attacks, aligns latency, and flags an extra
   assert.equal(analysis.missed, 0);
   assert.equal(Math.round(analysis.calibrationMs), 30);
   assert.equal(analysis.stableRate, 50);
+  assert.deepEqual(
+    analysis.timingBars.map(({ number, hits }) => ({
+      number,
+      beats: hits.map(({ beat }) => beat),
+      kinds: hits.map(({ kind }) => kind),
+    })),
+    [
+      { number: 1, beats: [1, 2], kinds: ["steady", "steady"] },
+      { number: 2, beats: [1, 2], kinds: ["early", "late"] },
+    ],
+  );
 });
 
 test("guitar timing analysis counts one ringing strum as one onset", () => {

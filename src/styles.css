@@ -661,6 +661,25 @@ input[type="range"]::-moz-range-thumb {
   width: 17px;
 }
 
+.analysis-result-heading {
+  margin-top: 16px;
+}
+
+.analysis-result-heading > span > strong,
+.analysis-result-heading > span > small {
+  display: block;
+}
+
+.analysis-result-heading > span > strong {
+  font-size: 14px;
+}
+
+.analysis-result-heading > span > small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .analysis-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -760,6 +779,118 @@ input[type="range"]::-moz-range-thumb {
 .timing-legend .is-late { color: #ff8794; }
 .timing-legend .is-missed { color: var(--muted); }
 .timing-legend .is-extra { color: var(--amber); }
+
+.bar-timing-panel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.bar-timing-title,
+.bar-timing-group > header,
+.beat-timing-label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bar-timing-title strong {
+  font-size: 13px;
+}
+
+.bar-timing-title span,
+.bar-timing-group > header span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.bar-timing-list {
+  max-height: 420px;
+  margin-top: 10px;
+  overflow: auto;
+}
+
+.bar-timing-group {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.bar-timing-group > header strong {
+  font-size: 12px;
+}
+
+.beat-timing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.beat-timing {
+  padding: 8px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.beat-timing-label {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.beat-timing-label span {
+  color: var(--muted-strong);
+}
+
+.beat-timing-label strong {
+  color: var(--cyan);
+}
+
+.beat-timing.is-early .beat-timing-label strong { color: #7ca8ff; }
+.beat-timing.is-late .beat-timing-label strong { color: #ff8794; }
+.beat-timing.is-missed .beat-timing-label strong { color: var(--muted); }
+
+.beat-timing-track {
+  position: relative;
+  height: 10px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.beat-timing-track::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.38);
+  content: "";
+}
+
+.beat-timing-track i {
+  position: absolute;
+  top: 2px;
+  left: var(--timing-position);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--cyan);
+  box-shadow: 0 0 8px currentColor;
+  translate: -50% 0;
+}
+
+.beat-timing.is-early .beat-timing-track i { color: #7ca8ff; }
+.beat-timing.is-late .beat-timing-track i { color: #ff8794; }
+.beat-timing.is-missed .beat-timing-track i {
+  width: 8px;
+  height: 2px;
+  color: var(--muted);
+  translate: -50% 2px;
+}
 
 .analysis-note,
 .analysis-empty {

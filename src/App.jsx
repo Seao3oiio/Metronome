@@ -259,6 +259,67 @@ function TimingThumbnail({ analysis }) {
   );
 }
 
+function TimingBreakdown({ analysis }) {
+  const range = Math.max(100, analysis.toleranceMs * 3);
+  return (
+    <div className="bar-timing-panel">
+      <div className="bar-timing-title">
+        <strong>逐拍基准</strong>
+        <span>快 ← 0ms → 慢</span>
+      </div>
+      <div className="bar-timing-list">
+        {analysis.timingBars.map((bar) => {
+          const count = (kind) => bar.hits.filter((hit) => hit.kind === kind).length;
+          return (
+            <div className="bar-timing-group" key={bar.number}>
+              <header>
+                <strong>第 {bar.number} 小节</strong>
+                <span>
+                  准 {count("steady")} · 快 {count("early")} · 慢 {count("late")} · 漏 {count("missed")}
+                </span>
+              </header>
+              <div className="beat-timing-grid">
+                {bar.hits.map((hit) => {
+                  const label = hit.steps === 1
+                    ? `第 ${hit.beat} 拍`
+                    : `${hit.beat} 拍 · ${hit.step}/${hit.steps}`;
+                  const rounded = Math.round(hit.deviationMs ?? 0);
+                  const result = hit.kind === "missed"
+                    ? "漏弹"
+                    : hit.kind === "early"
+                      ? `快 ${Math.abs(rounded)}ms`
+                      : hit.kind === "late"
+                        ? `慢 ${Math.abs(rounded)}ms`
+                        : `${rounded > 0 ? "+" : ""}${rounded}ms`;
+                  const position = hit.kind === "missed"
+                    ? 50
+                    : Math.min(94, Math.max(6, 50 + ((hit.deviationMs ?? 0) / range) * 44));
+                  return (
+                    <div
+                      className={`beat-timing is-${hit.kind}`}
+                      key={`${hit.beat}-${hit.step}`}
+                      role="group"
+                      aria-label={`${label}，${result}`}
+                    >
+                      <div className="beat-timing-label">
+                        <span>{label}</span>
+                        <strong>{result}</strong>
+                      </div>
+                      <div className="beat-timing-track" aria-hidden="true">
+                        <i style={{ "--timing-position": `${position}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ProgressTrend({ history }) {
   if (history.length < 2) return null;
   const values = history.slice(-8);
@@ -664,6 +725,7 @@ export default function App() {
   const [savedRhythms, setSavedRhythms] = useState(loadRhythmLibrary);
   const [practiceHistory, setPracticeHistory] = useState(loadPracticeHistory);
   const [analysis, setAnalysis] = useState(null);
+  const [recordingAudio, setRecordingAudio] = useState(null);
   const [recording, setRecording] = useState(false);
   const [selectedRhythmId, setSelectedRhythmId] = useState("");
   const [rhythmName, setRhythmName] = useState("");
@@ -1191,6 +1253,7 @@ export default function App() {
 
     if (playbackIntentRef.current) stop("准备录音");
     setAnalysis(null);
+    setRecordingAudio(null);
     const snapshot = {
       bpm: settingsRef.current.bpm,
       beatUnit: settingsRef.current.beatUnit,
@@ -1238,10 +1301,15 @@ export default function App() {
         if (session.cancelled || !session.rhythmStartedAt || !session.chunks.length) return;
         let context;
         try {
+          const audioBlob = new Blob(session.chunks, {
+            type: recorder.mimeType || session.chunks[0]?.type,
+          });
+          const recordedAt = Date.now();
+          setRecordingAudio({ at: recordedAt, blob: audioBlob });
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
           context = new AudioContextClass();
           const buffer = await context.decodeAudioData(
-            await new Blob(session.chunks, { type: recorder.mimeType }).arrayBuffer(),
+            await audioBlob.arrayBuffer(),
           );
           const samples = new Float32Array(buffer.length);
           for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
@@ -1257,7 +1325,7 @@ export default function App() {
           });
           const record = {
             actualBpm: result.actualBpm,
-            at: Date.now(),
+            at: recordedAt,
             bpm: session.settings.bpm,
             key: session.key,
             meanAbsMs: result.meanAbsMs,
@@ -1906,6 +1974,25 @@ export default function App() {
   const previousAnalysis = analysisHistoryIndex > 0
     ? visibleHistory[analysisHistoryIndex - 1]
     : null;
+  const exportPracticeAudio = () => {
+    if (!recordingAudio) return;
+    const extension = recordingAudio.blob.type.includes("mp4")
+      ? "m4a"
+      : recordingAudio.blob.type.includes("ogg")
+        ? "ogg"
+        : recordingAudio.blob.type.includes("wav")
+          ? "wav"
+          : "webm";
+    const url = URL.createObjectURL(recordingAudio.blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `pulse-${new Date(recordingAudio.at).toISOString().slice(0, 19).replaceAll(":", "-")}.${extension}`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatus("录音已导出");
+  };
 
   useEffect(() => {
     const handleEditorShortcut = (event) => {
@@ -2485,10 +2572,22 @@ export default function App() {
                     {recording ? <Square fill="currentColor" /> : <Mic />}
                     {recording ? "停止并分析" : "开始录音"}
                   </button>
+                  {recordingAudio && !recording && (
+                    <button className="record-button" type="button" onClick={exportPracticeAudio}>
+                      <Download />
+                      导出录音
+                    </button>
+                  )}
                 </div>
 
                 {analysis ? (
                   <>
+                    <div className="analysis-result-heading">
+                      <span>
+                        <strong>本次结果</strong>
+                        <small>{analysis.expectedCount} 个节奏基准点</small>
+                      </span>
+                    </div>
                     <div className="analysis-stats">
                       <span><strong>{analysis.stableRate}%</strong><small>稳定率</small></span>
                       <span><strong>{Math.round(analysis.meanAbsMs)}ms</strong><small>平均误差</small></span>
@@ -2504,11 +2603,12 @@ export default function App() {
                     <TimingThumbnail analysis={analysis} />
                     <div className="timing-legend" aria-label="缩略图图例">
                       <span className="is-steady">准确 {analysis.onTime}</span>
-                      <span className="is-early">提前 {analysis.early}</span>
-                      <span className="is-late">滞后 {analysis.late}</span>
+                      <span className="is-early">偏快 {analysis.early}</span>
+                      <span className="is-late">偏慢 {analysis.late}</span>
                       <span className="is-missed">漏弹 {analysis.missed}</span>
                       <span className="is-extra">多弹 {analysis.extra}</span>
                     </div>
+                    <TimingBreakdown analysis={analysis} />
                     <p className="analysis-note">
                       已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
                       {previousAnalysis && (
