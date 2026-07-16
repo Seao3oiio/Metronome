@@ -336,10 +336,10 @@ export function rhythmEventIndexAtTime(seconds, bpm, plan) {
   return index;
 }
 
-function isNarrowbandClick(samples, sampleRate, start) {
+function spectrumAt(samples, sampleRate, start) {
   const size = 256;
   const stride = Math.max(1, Math.round(sampleRate / 4800));
-  if (start + (size - 1) * stride >= samples.length) return false;
+  if (start + (size - 1) * stride >= samples.length) return null;
 
   const window = new Float32Array(size);
   for (let index = 0; index < size; index += 1) {
@@ -348,6 +348,7 @@ function isNarrowbandClick(samples, sampleRate, start) {
   }
 
   const effectiveRate = sampleRate / stride;
+  const powers = new Float32Array(size / 2 - 1);
   const strongest = [0, 0, 0, 0, 0];
   let total = 0;
   let weighted = 0;
@@ -360,11 +361,14 @@ function isNarrowbandClick(samples, sampleRate, start) {
       previousTwo = previous;
       previous = current;
     }
-    const power =
+    const power = Math.max(
+      0,
       previousTwo * previousTwo +
-      previous * previous -
-      coefficient * previous * previousTwo;
+        previous * previous -
+        coefficient * previous * previousTwo,
+    );
     const frequency = (bin * effectiveRate) / size;
+    powers[bin - 1] = power;
     total += power;
     weighted += power * frequency;
     if (power > strongest[0]) {
@@ -372,14 +376,40 @@ function isNarrowbandClick(samples, sampleRate, start) {
       strongest.sort((left, right) => left - right);
     }
   }
-  if (!total) return false;
+  if (!total) return null;
   const concentration = strongest.reduce((sum, power) => sum + power, 0) / total;
   const centroid = weighted / total;
-  // The speaker's synth click is high and narrowband; a guitar attack spreads across more bins.
-  return centroid >= 600 && concentration >= 0.9;
+  return { centroid, concentration, powers };
 }
 
-export function detectGuitarOnsets(samples, sampleRate, minSeparation = 0.05) {
+function spectrumSimilarity(left, right) {
+  let dot = 0;
+  let leftEnergy = 0;
+  let rightEnergy = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    dot += left[index] * right[index];
+    leftEnergy += left[index] * left[index];
+    rightEnergy += right[index] * right[index];
+  }
+  return dot / Math.sqrt(leftEnergy * rightEnergy || 1);
+}
+
+function isPlaybackClick(spectrum, references) {
+  if (!spectrum) return false;
+  // High narrowband clicks are recognizable even when the count-in is inaudible in headphones.
+  if (spectrum.centroid >= 600 && spectrum.concentration >= 0.9) return true;
+  if (spectrum.concentration < 0.5) return false;
+  return references.some(
+    (reference) => spectrumSimilarity(spectrum.powers, reference.powers) >= 0.985,
+  );
+}
+
+export function detectGuitarOnsets(
+  samples,
+  sampleRate,
+  minSeparation = 0.05,
+  calibrationEnd = 0,
+) {
   const frameSize = Math.max(32, Math.round(sampleRate * 0.008));
   const frameCount = Math.floor(samples.length / frameSize);
   if (frameCount < 4) return [];
@@ -419,19 +449,37 @@ export function detectGuitarOnsets(samples, sampleRate, minSeparation = 0.05) {
       levels[frame] > Math.max(0.002, noiseFloor * 3) &&
       rises[frame] >= rises[frame - 1] &&
       rises[frame] > rises[frame + 1] &&
-      rises[frame] > Math.max(0.5, localRise * 2.8) &&
-      !isNarrowbandClick(samples, sampleRate, frame * frameSize)
+      rises[frame] > Math.max(0.5, localRise * 2.8)
     ) {
       candidates.push({
+        spectrum: spectrumAt(samples, sampleRate, frame * frameSize),
         time: (frame * frameSize) / sampleRate,
         strength: levels[frame],
       });
     }
   }
 
+  // ponytail: assumes a quiet count-in; add timed echo modeling if muted strokes collide.
+  const clickReferences = calibrationEnd
+    ? candidates
+        .filter(
+          ({ spectrum, time }) =>
+            time < calibrationEnd - 0.1 && spectrum?.concentration >= 0.5,
+        )
+        .sort((left, right) => right.strength - left.strength)
+        .slice(0, 12)
+        .map(({ spectrum }) => spectrum)
+    : [];
+  const minimumTime = calibrationEnd ? calibrationEnd - 0.1 : -Infinity;
   const onsets = [];
   let groupStartedAt = -Infinity;
   for (const candidate of candidates) {
+    if (
+      candidate.time < minimumTime ||
+      isPlaybackClick(candidate.spectrum, clickReferences)
+    ) {
+      continue;
+    }
     const previous = onsets.at(-1);
     if (!previous || candidate.time - groupStartedAt >= minSeparation) {
       onsets.push(candidate);
@@ -545,7 +593,7 @@ export function analyzeRhythmRecording(
   const minGap = gaps.length ? Math.min(...gaps.filter((gap) => gap > 1e-6)) : beatSeconds;
   // ponytail: the selected exercise bounds grouping; add a timbre control for free-form tremolo.
   const onsetSeparation = Math.max(0.05, Math.min(0.35, minGap * 0.3));
-  const detected = detectGuitarOnsets(samples, sampleRate, onsetSeparation);
+  const detected = detectGuitarOnsets(samples, sampleRate, onsetSeparation, rhythmStart);
   const actual = detected
     .filter((time) => time >= rhythmStart - 0.1 && time <= rhythmStart + duration + 0.15)
     .map((time) => time - rhythmStart);

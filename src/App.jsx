@@ -1338,8 +1338,10 @@ export default function App() {
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
+      const [audioTrack] = stream.getAudioTracks();
+      if (audioTrack && "contentHint" in audioTrack) audioTrack.contentHint = "music";
       const recorder = new window.MediaRecorder(stream);
       const session = {
         cancelled: false,
