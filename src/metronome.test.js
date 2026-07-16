@@ -304,6 +304,30 @@ test("guitar onset detection rejects narrowband metronome spill", () => {
   assert.deepEqual(detectGuitarOnsets(samples, sampleRate), []);
 });
 
+test("slow guitar practice keeps early strokes paired with their beats", () => {
+  const sampleRate = 8000;
+  const samples = new Float32Array(sampleRate * 7);
+  [0.5, 1.72, 3.18, 4.7].forEach((onset) => {
+    const start = Math.round(onset * sampleRate);
+    for (let index = 0; index < sampleRate * 0.12; index += 1) {
+      const time = index / sampleRate;
+      samples[start + index] +=
+        0.8 * Math.exp(-time * 28) * Math.sin(2 * Math.PI * 220 * time);
+    }
+  });
+
+  const analysis = analyzeRhythmRecording(samples, sampleRate, {
+    bpm: 40,
+    bars: [makeBar(4, 1)],
+    loopBar: null,
+    rhythmStart: 0.5,
+    duration: 6,
+  });
+  assert.equal(analysis.matchedCount, 4);
+  assert.equal(analysis.extra, 0);
+  assert.equal(analysis.missed, 0);
+});
+
 test("guitar timing analysis counts one ringing strum as one onset", () => {
   const sampleRate = 8000;
   const samples = new Float32Array(sampleRate * 3);

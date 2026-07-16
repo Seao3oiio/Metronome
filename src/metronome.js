@@ -552,7 +552,7 @@ export function analyzeRhythmRecording(
   if (!actual.length) throw new Error("没有检测到清晰的吉他起音");
 
   const tolerance = Math.min(0.08, Math.max(0.025, beatSeconds * 0.06));
-  const matchWindow = Math.max(tolerance * 1.5, Math.min(0.18, minGap * 0.45));
+  const matchWindow = Math.max(tolerance * 1.5, Math.min(0.45, minGap * 0.45));
   const maxOffset = Math.min(0.2, Math.max(0.06, minGap * 0.45));
   let best = null;
 
