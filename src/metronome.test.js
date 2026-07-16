@@ -125,6 +125,19 @@ test("Qing Hua Ci triggers once per written note onset", () => {
   assert.equal(attacks.at(-1), "--------");
 });
 
+test("Du Xuan C keeps its pickup and loops the following two bars", () => {
+  const preset = PRACTICE_PRESET_WEEKS[2].exercises
+    .find(({ id }) => id === "w3-ex8")
+    .presets.find(({ id }) => id === "w3-ex8-3");
+
+  assert.deepEqual(preset.bars.map(({ beats }) => beats.map(({ steps }) => steps)), [
+    [[0], [0], [0, 1], [1, 1]],
+    [[1], [1, 1], [1, 1], [1, 1]],
+    [[1, 1], [1, 1], [0, 1], [1, 1]],
+  ]);
+  assert.deepEqual(preset.loopBar, [1, 2]);
+});
+
 test("MusicXML converts rests, durations, chords, ties, and accents to note onsets", () => {
   const xml = `<?xml version="1.0"?>
     <score-partwise version="4.0">

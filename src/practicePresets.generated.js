@@ -5611,7 +5611,6 @@ export const PRACTICE_PRESET_WEEKS = [
                 "beats": [
                   {
                     "steps": [
-                      1,
                       1
                     ]
                   },
@@ -5664,7 +5663,10 @@ export const PRACTICE_PRESET_WEEKS = [
                 ]
               }
             ],
-            "loopBar": null
+            "loopBar": [
+              1,
+              2
+            ]
           },
           {
             "id": "w3-ex8-4",

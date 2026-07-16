@@ -30,11 +30,15 @@ function readPart(partNode) {
   let tempo = null;
 
   return named(body(partNode, "part"), "measure").map((measureNode) => {
+    const items = body(measureNode, "measure");
+    const repeatDirections = items.flatMap((item) =>
+      named(item.barline, "repeat").map((repeat) => attr(repeat, "direction")),
+    );
     let cursor = 0;
     let chordStart = 0;
     const events = [];
 
-    for (const item of body(measureNode, "measure")) {
+    for (const item of items) {
       if (item.attributes) {
         divisions = Number(text(item.attributes, "divisions") ?? divisions);
         const timeNode = named(item.attributes, "time")[0];
@@ -81,7 +85,14 @@ function readPart(partNode) {
       }
     }
 
-    return { beats, beatUnit, tempo, events };
+    return {
+      beats,
+      beatUnit,
+      tempo,
+      events,
+      startsRepeat: repeatDirections.includes("forward"),
+      endsRepeat: repeatDirections.includes("backward"),
+    };
   });
 }
 
@@ -130,5 +141,10 @@ export function musicXmlToRhythm(xml, fallbackBpm = 96) {
 
   const quarterTempo = parts.flat().find(({ tempo }) => Number.isFinite(tempo))?.tempo;
   const tempo = quarterTempo == null ? fallbackBpm : quarterTempo * beatUnit / 4;
-  return { bpm: Math.round(tempo), beatUnit, bars, loopBar: null };
+  const loopStart = parts[0].findIndex(({ startsRepeat }) => startsRepeat);
+  const loopEnd = parts[0].findIndex(
+    ({ endsRepeat }, index) => endsRepeat && index >= Math.max(0, loopStart),
+  );
+  const loopBar = loopEnd < 0 ? null : [Math.max(0, loopStart), loopEnd];
+  return { bpm: Math.round(tempo), beatUnit, bars, loopBar };
 }
