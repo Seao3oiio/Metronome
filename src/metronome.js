@@ -336,7 +336,7 @@ export function rhythmEventIndexAtTime(seconds, bpm, plan) {
   return index;
 }
 
-export function detectGuitarOnsets(samples, sampleRate) {
+export function detectGuitarOnsets(samples, sampleRate, minSeparation = 0.05) {
   const frameSize = Math.max(32, Math.round(sampleRate * 0.008));
   const frameCount = Math.floor(samples.length / frameSize);
   if (frameCount < 4) return [];
@@ -383,11 +383,15 @@ export function detectGuitarOnsets(samples, sampleRate) {
   }
 
   const onsets = [];
+  let previousCandidateTime = -Infinity;
   for (const candidate of candidates) {
     const previous = onsets.at(-1);
-    // ponytail: 50 ms groups one guitar strum; use spectral separation if tremolo faster than this matters.
-    if (!previous || candidate.time - previous.time >= 0.05) onsets.push(candidate);
-    else if (candidate.strength > previous.strength) onsets[onsets.length - 1] = candidate;
+    if (!previous || candidate.time - previousCandidateTime >= minSeparation) {
+      onsets.push(candidate);
+    } else if (candidate.strength > previous.strength) {
+      onsets[onsets.length - 1] = candidate;
+    }
+    previousCandidateTime = candidate.time;
   }
   return onsets.map(({ time }) => time);
 }
@@ -475,14 +479,16 @@ export function analyzeRhythmRecording(
   const expected = expectedRhythmOnsets({ bpm, bars, loopBar }, duration).onsets;
   if (!expected.length) throw new Error("当前练习没有需要弹奏的节奏点");
 
-  const detected = detectGuitarOnsets(samples, sampleRate);
+  const gaps = expected.slice(1).map((time, index) => time - expected[index]);
+  const minGap = gaps.length ? Math.min(...gaps.filter((gap) => gap > 1e-6)) : beatSeconds;
+  // ponytail: the selected exercise bounds grouping; add spectral separation for free-form tremolo.
+  const onsetSeparation = Math.max(0.05, Math.min(0.12, minGap * 0.4));
+  const detected = detectGuitarOnsets(samples, sampleRate, onsetSeparation);
   const actual = detected
     .filter((time) => time >= rhythmStart - 0.1 && time <= rhythmStart + duration + 0.15)
     .map((time) => time - rhythmStart);
   if (!actual.length) throw new Error("没有检测到清晰的吉他起音");
 
-  const gaps = expected.slice(1).map((time, index) => time - expected[index]);
-  const minGap = gaps.length ? Math.min(...gaps.filter((gap) => gap > 1e-6)) : beatSeconds;
   const tolerance = Math.min(0.08, Math.max(0.025, beatSeconds * 0.06));
   const matchWindow = Math.max(tolerance * 1.5, Math.min(0.18, minGap * 0.45));
   const maxOffset = Math.min(0.2, Math.max(0.06, minGap * 0.45));

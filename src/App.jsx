@@ -1213,7 +1213,7 @@ export default function App() {
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
       });
       const recorder = new window.MediaRecorder(stream);
       const session = {
