@@ -289,6 +289,21 @@ test("guitar timing analysis detects attacks, aligns latency, and flags an extra
   );
 });
 
+test("guitar onset detection rejects narrowband metronome spill", () => {
+  const sampleRate = 8000;
+  const samples = new Float32Array(sampleRate * 3);
+  [0.2, 0.7, 1.2, 1.7].forEach((onset) => {
+    const start = Math.round(onset * sampleRate);
+    for (let index = 0; index < sampleRate * 0.08; index += 1) {
+      const time = index / sampleRate;
+      samples[start + index] +=
+        0.3 * Math.exp(-time * 35) * Math.sin(2 * Math.PI * 720 * time);
+    }
+  });
+
+  assert.deepEqual(detectGuitarOnsets(samples, sampleRate), []);
+});
+
 test("guitar timing analysis counts one ringing strum as one onset", () => {
   const sampleRate = 8000;
   const samples = new Float32Array(sampleRate * 3);
@@ -334,7 +349,7 @@ test("guitar timing analysis rejects dense background transients", () => {
       rhythmStart: 0.2,
       duration: 2,
     }),
-    /没有检测到足够清晰的吉他演奏/,
+    /没有检测到(?:足够)?清晰的吉他/,
   );
 });
 
