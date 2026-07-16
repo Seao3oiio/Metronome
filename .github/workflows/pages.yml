@@ -1,21 +1,49 @@
-name: Deploy to GitHub Pages
+name: Publish Pages
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release:
+        description: Type "stable" to publish main to the stable site
+        required: true
+        type: string
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
 
 jobs:
-  deploy:
+  dev:
+    if: github.event_name == 'push'
+    name: Trigger dev deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy this commit to Metronome-dev
+        env:
+          DEV_REPOSITORY: Seao3oiio/Metronome-dev
+          GH_TOKEN: ${{ secrets.DEV_REPO_TOKEN }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          gh api \
+            --method POST \
+            "/repos/${DEV_REPOSITORY}/dispatches" \
+            --field event_type=deploy \
+            --field "client_payload[sha]=${SOURCE_SHA}"
+
+  stable:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.release == 'stable'
+    name: Publish stable
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: stable-pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

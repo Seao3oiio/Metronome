@@ -50,6 +50,7 @@ import {
   normalizeBars,
   normalizeLoopRange,
   nextTrainingBpm,
+  patchModeSettings,
   removeBarSelection,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
@@ -66,6 +67,11 @@ import { clonePracticeRhythm, PRACTICE_PRESET_WEEKS } from "./practicePresets.js
 
 const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
 const PRACTICE_HISTORY_KEY = "pulse-practice-history-v1";
+const LEGACY_SETTINGS_KEY = "pulse-settings";
+const MODE_SETTINGS_KEYS = {
+  basic: "pulse-basic-settings-v1",
+  advanced: "pulse-advanced-settings-v1",
+};
 const TUTORIAL_PREFIX = "tutorial:";
 const PRACTICE_PRESETS = PRACTICE_PRESET_WEEKS.flatMap((week) =>
   week.exercises.flatMap((exercise) =>
@@ -132,9 +138,11 @@ function freshSettings() {
   return { ...DEFAULT_SETTINGS, bars: [makeBar(4, 1)] };
 }
 
-function loadSettings() {
+function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
   try {
-    const saved = JSON.parse(localStorage.getItem("pulse-settings"));
+    const saved = JSON.parse(
+      localStorage.getItem(storageKey) ?? (fallbackKey ? localStorage.getItem(fallbackKey) : null),
+    );
     const defaults = freshSettings();
     if (!saved) return defaults;
 
@@ -175,6 +183,21 @@ function loadSettings() {
   } catch {
     return freshSettings();
   }
+}
+
+function loadBasicSettings() {
+  const settings = loadSettings(MODE_SETTINGS_KEYS.basic, LEGACY_SETTINGS_KEY);
+  return {
+    ...settings,
+    bars: settings.bars.length === 1 ? settings.bars : [makeBar(4, 1)],
+    loopBar: null,
+    beatTrack: true,
+    rhythmTrack: true,
+    gapClick: false,
+    countIn: false,
+    rhythmAnalysis: false,
+    analysisLoop: false,
+  };
 }
 
 function loadRhythmLibrary() {
@@ -765,7 +788,15 @@ async function syncMediaLoop(audio, settings) {
 }
 
 export default function App() {
-  const [settings, setSettings] = useState(loadSettings);
+  const modeRef = useRef(window.location.hash === "#rhythm" ? "advanced" : "basic");
+  const modeSettingsRef = useRef(null);
+  if (!modeSettingsRef.current) {
+    modeSettingsRef.current = {
+      basic: loadBasicSettings(),
+      advanced: loadSettings(MODE_SETTINGS_KEYS.advanced, LEGACY_SETTINGS_KEY),
+    };
+  }
+  const [settings, setSettings] = useState(() => modeSettingsRef.current[modeRef.current]);
   const [bpmDraft, setBpmDraft] = useState(String(settings.bpm));
   const [playing, setPlaying] = useState(false);
   const [status, setStatusValue] = useState("就绪");
@@ -798,9 +829,7 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [selectedRhythmId, setSelectedRhythmId] = useState("");
   const [rhythmName, setRhythmName] = useState("");
-  const [advancedRhythm, setAdvancedRhythm] = useState(
-    () => window.location.hash === "#rhythm",
-  );
+  const [advancedRhythm, setAdvancedRhythm] = useState(() => modeRef.current === "advanced");
   const [installed, setInstalled] = useState(
     () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
   );
@@ -823,6 +852,12 @@ export default function App() {
   const rhythmDialogRef = useRef(null);
   const isIOS = isIOSDevice();
 
+  const replaceSettings = useCallback((next) => {
+    modeSettingsRef.current = patchModeSettings(modeSettingsRef.current, modeRef.current, next);
+    settingsRef.current = modeSettingsRef.current[modeRef.current];
+    setSettings(settingsRef.current);
+  }, []);
+
   const updateSettings = useCallback((patch, recordHistory = true) => {
     if (recordingRef.current) {
       setStatus("请先完成录音");
@@ -833,7 +868,7 @@ export default function App() {
       ("bars" in patch && patch.bars !== current.bars) ||
       ("loopBar" in patch && patch.loopBar !== current.loopBar) ||
       ("beatUnit" in patch && patch.beatUnit !== current.beatUnit);
-    if (recordHistory && rhythmChanged) {
+    if (recordHistory && rhythmChanged && modeRef.current === "advanced") {
       const history = historyRef.current;
       history.undo.push({
         bars: current.bars,
@@ -845,10 +880,17 @@ export default function App() {
       setHistoryDepth({ undo: history.undo.length, redo: 0 });
     }
 
-    const next = { ...current, ...patch };
-    if (rhythmChanged || "bpm" in patch) setAnalysis(null);
+    modeSettingsRef.current = patchModeSettings(
+      modeSettingsRef.current,
+      modeRef.current,
+      patch,
+    );
+    const next = modeSettingsRef.current[modeRef.current];
+    if ((rhythmChanged || "bpm" in patch) && modeRef.current === "advanced") {
+      setAnalysis(null);
+    }
     settingsRef.current = next;
-    setSettings((current) => ({ ...current, ...patch }));
+    setSettings(next);
     if (audioRef.current?.media && playingRef.current) {
       syncMediaLoop(audioRef.current, next).catch(() => {
         if (playbackIntentRef.current) setStatus("继续播放原节奏");
@@ -943,8 +985,7 @@ export default function App() {
       setAudioSession("playback");
       if (settingsRef.current.trainer && !preserveTempo) {
         const bpm = settingsRef.current.startBpm;
-        settingsRef.current = { ...settingsRef.current, bpm };
-        setSettings((current) => ({ ...current, bpm }));
+        replaceSettings({ ...settingsRef.current, bpm });
       }
 
       const gapPattern = practice ? [] : makeActiveGapPattern(settingsRef.current);
@@ -1079,8 +1120,7 @@ export default function App() {
               if (nextMinuteDeadline !== null) minuteDeadlineRef.current = nextMinuteDeadline;
               const bpm = nextTrainingBpm(current.bpm, current.targetBpm, current.changeAmount);
               if (bpm !== current.bpm) {
-                settingsRef.current = { ...current, bpm };
-                setSettings((previous) => ({ ...previous, bpm }));
+                replaceSettings({ ...current, bpm });
               }
             }
 
@@ -1194,7 +1234,7 @@ export default function App() {
             transport.bpm.setValueAtTime(nextBpm, time);
             Tone.getDraw().schedule(() => {
               if (generationRef.current === run) {
-                setSettings((previous) => ({ ...previous, bpm: nextBpm }));
+                updateSettings({ bpm: nextBpm }, false);
               }
             }, time);
           }
@@ -1261,7 +1301,7 @@ export default function App() {
     } finally {
       if (run === generationRef.current) startingRef.current = false;
     }
-  }, [disposeAudio, isIOS, stop]);
+  }, [disposeAudio, isIOS, replaceSettings, stop, updateSettings]);
 
   const refreshPlayback = useCallback(
     async () => {
@@ -1321,6 +1361,8 @@ export default function App() {
     }
 
     if (playbackIntentRef.current) stop("准备录音");
+    const requestMode = modeRef.current;
+    const request = ++generationRef.current;
     setAnalysis(null);
     setRecordingAudio(null);
     const snapshot = {
@@ -1347,6 +1389,10 @@ export default function App() {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
+      if (request !== generationRef.current || requestMode !== modeRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const [audioTrack] = stream.getAudioTracks();
       if (audioTrack && "contentHint" in audioTrack) audioTrack.contentHint = "music";
       const recorder = new window.MediaRecorder(stream);
@@ -1356,6 +1402,7 @@ export default function App() {
         duration,
         key: practiceKey(snapshot),
         loop,
+        mode: requestMode,
         recorder,
         recorderStartedAt: performance.now() / 1000,
         rhythmStartedAt: null,
@@ -1369,14 +1416,18 @@ export default function App() {
         if (event.data.size) session.chunks.push(event.data);
       });
       recorder.addEventListener("stop", async () => {
-        if (session.cancelled || !session.rhythmStartedAt || !session.chunks.length) return;
+        if (
+          session.cancelled ||
+          session.mode !== modeRef.current ||
+          !session.rhythmStartedAt ||
+          !session.chunks.length
+        ) return;
         let context;
         try {
           const audioBlob = new Blob(session.chunks, {
             type: recorder.mimeType || session.chunks[0]?.type,
           });
           const recordedAt = Date.now();
-          setRecordingAudio({ at: recordedAt, blob: audioBlob });
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
           context = new AudioContextClass();
           const buffer = await context.decodeAudioData(
@@ -1394,6 +1445,7 @@ export default function App() {
             rhythmStart: session.rhythmStartedAt - session.recorderStartedAt,
             duration: session.duration,
           });
+          if (session.cancelled || session.mode !== modeRef.current) return;
           const record = {
             actualBpm: result.actualBpm,
             at: recordedAt,
@@ -1402,10 +1454,12 @@ export default function App() {
             meanAbsMs: result.meanAbsMs,
             stableRate: result.stableRate,
           };
+          setRecordingAudio({ at: recordedAt, blob: audioBlob });
           setAnalysis({ ...result, key: session.key, record });
           setPracticeHistory((current) => [...current, record].slice(-200));
           setStatus(`分析完成 · 稳定率 ${result.stableRate}%`);
         } catch (error) {
+          if (session.cancelled || session.mode !== modeRef.current) return;
           setStatus(`分析失败：${error.message}`);
         } finally {
           await context?.close();
@@ -1431,6 +1485,7 @@ export default function App() {
       if (!playingRef.current && !session.stopping) finishPracticeRecording();
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
+      if (request !== generationRef.current || requestMode !== modeRef.current) return;
       recordingRef.current = null;
       setRecording(false);
       setStatus(error.name === "NotAllowedError" ? "需要麦克风权限才能录音" : "无法开始录音");
@@ -1460,7 +1515,8 @@ export default function App() {
     settingsRef.current = settings;
     if (!bpmEditingRef.current) setBpmDraft(String(settings.bpm));
     try {
-      localStorage.setItem("pulse-settings", JSON.stringify(settings));
+      const settingsMode = modeSettingsRef.current.basic === settings ? "basic" : "advanced";
+      localStorage.setItem(MODE_SETTINGS_KEYS[settingsMode], JSON.stringify(settings));
     } catch {
       // Private browsing can deny storage; playback should still work.
     }
@@ -1558,15 +1614,29 @@ export default function App() {
 
   useEffect(() => {
     const syncPage = () => {
-      setAdvancedRhythm(window.location.hash === "#rhythm");
-      if (playbackIntentRef.current && settingsRef.current.gapClick) {
-        rhythmRevisionRef.current += 1;
-        void refreshPlayback();
-      }
+      const nextAdvanced = window.location.hash === "#rhythm";
+      const nextMode = nextAdvanced ? "advanced" : "basic";
+      if (nextMode === modeRef.current) return;
+
+      const message = nextAdvanced ? "已切换到高级模式" : "已切换到基础模式";
+      if (recordingRef.current) recordingRef.current.cancelled = true;
+      stop(message);
+      modeRef.current = nextMode;
+      const next = modeSettingsRef.current[nextMode];
+      settingsRef.current = next;
+      bpmEditingRef.current = false;
+      tapsRef.current = [];
+      setSettings(next);
+      setBpmDraft(String(next.bpm));
+      setAdvancedRhythm(nextAdvanced);
+      setEditorBarIndex((index) => Math.min(index, next.bars.length - 1));
+      setSelectingBars(false);
+      setSelectedBarIndexes([]);
+      setStatus(message);
     };
     window.addEventListener("hashchange", syncPage);
     return () => window.removeEventListener("hashchange", syncPage);
-  }, [refreshPlayback]);
+  }, [stop]);
 
   useEffect(() => {
     const captureInstallPrompt = (event) => {
@@ -1888,9 +1958,13 @@ export default function App() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    const mode = modeRef.current;
+    const revision = generationRef.current;
+    const bpm = settingsRef.current.bpm;
     try {
       const { musicXmlToRhythm } = await import("./musicXml.js");
-      const rhythm = musicXmlToRhythm(await file.text(), settingsRef.current.bpm);
+      const rhythm = musicXmlToRhythm(await file.text(), bpm);
+      if (mode !== modeRef.current || revision !== generationRef.current) return;
       const unsupported =
         rhythm.bpm < BPM_MIN ||
         rhythm.bpm > BPM_MAX ||
@@ -1905,6 +1979,7 @@ export default function App() {
       if (unsupported) throw new Error("速度、拍号或细分超出高级节奏支持范围");
       applyImportedRhythm(rhythm, file.name.replace(/\.(musicxml|xml)$/i, "").slice(0, 40));
     } catch (error) {
+      if (mode !== modeRef.current || revision !== generationRef.current) return;
       setStatus(`MusicXML 无法导入：${error.message}`);
     }
   };
@@ -2324,8 +2399,9 @@ export default function App() {
         >
           <div className="settings-heading">
             {advancedRhythm ? (
-              <a className="rhythm-back" href="#main" aria-label="返回设置">
+              <a className="rhythm-back" href="#main" aria-label="切换到基础模式">
                 <ArrowLeft />
+                <span>基础模式</span>
               </a>
             ) : (
               <h2 id="settings-heading">设置</h2>
@@ -2449,7 +2525,7 @@ export default function App() {
               className={`advanced-rhythm-link ${quickPattern ? "" : "is-active"}`}
               href="#rhythm"
             >
-              <span>高级节奏</span>
+              <span>切换到高级模式</span>
               <ChevronRight />
             </a>
           </div>
@@ -2550,6 +2626,17 @@ export default function App() {
               {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
               <span>{playing ? "暂停" : "开始"}</span>
             </button>
+            <button
+              className="advanced-tap"
+              type="button"
+              onClick={tapTempo}
+              aria-label="Tap 测速"
+              aria-keyshortcuts="T"
+              disabled={recording}
+            >
+              <Hand />
+              <span>Tap</span>
+            </button>
           </div>
 
           <div
@@ -2618,115 +2705,24 @@ export default function App() {
             </div>
           </div>
 
-          <div className="setting-block analysis-setting" hidden={!advancedRhythm}>
-            <div className="setting-label analysis-setting-heading">
+          <div className="setting-block rhythm-block" hidden={!advancedRhythm}>
+            <div className="advanced-section-heading">
               <span>
-                <strong>录音分析</strong>
-                <small>对比当前高级节奏，记录练习进步</small>
+                <strong>节奏编辑</strong>
+                <small>增减拍数、细分与重音</small>
               </span>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={settings.rhythmAnalysis}
-                  onChange={(event) =>
-                    updateSettings({ rhythmAnalysis: event.target.checked })
-                  }
-                  disabled={recording}
-                  aria-label="录音分析"
-                />
-                <span aria-hidden="true" />
+              <label className="advanced-meter">
+                <span>拍号单位</span>
+                <select
+                  value={settings.beatUnit}
+                  onChange={(event) => updateSettings({ beatUnit: Number(event.target.value) })}
+                >
+                  {BEAT_UNITS.map((unit) => (
+                    <option key={unit} value={unit}>/{unit}</option>
+                  ))}
+                </select>
               </label>
             </div>
-
-            {settings.rhythmAnalysis && (
-              <section className="practice-analysis" aria-label="节奏录音分析">
-                <p className="analysis-warning" role="note">
-                  测试中 · 当前功能仍不稳定，暂不建议使用
-                </p>
-                <div className="practice-analysis-heading">
-                  <div className="analysis-mode" role="group" aria-label="节奏播放方式">
-                    <button
-                      className={!settings.analysisLoop ? "is-selected" : ""}
-                      type="button"
-                      onClick={() => updateSettings({ analysisLoop: false })}
-                      disabled={recording}
-                      aria-pressed={!settings.analysisLoop}
-                    >
-                      播放一遍
-                    </button>
-                    <button
-                      className={settings.analysisLoop ? "is-selected" : ""}
-                      type="button"
-                      onClick={() => updateSettings({ analysisLoop: true })}
-                      disabled={recording}
-                      aria-pressed={settings.analysisLoop}
-                    >
-                      循环播放
-                    </button>
-                  </div>
-                  <button
-                    className={`record-button ${recording ? "is-active" : ""}`}
-                    type="button"
-                    onClick={recording ? finishPracticeRecording : beginPracticeRecording}
-                  >
-                    {recording ? <Square fill="currentColor" /> : <Mic />}
-                    {recording ? "停止并分析" : "开始录音"}
-                  </button>
-                  {recordingAudio && !recording && (
-                    <button className="record-button" type="button" onClick={exportPracticeAudio}>
-                      <Download />
-                      导出录音
-                    </button>
-                  )}
-                </div>
-
-                {analysis ? (
-                  <>
-                    <div className="analysis-result-heading">
-                      <span>
-                        <strong>本次结果</strong>
-                        <small>{analysis.expectedCount} 个节奏基准点</small>
-                      </span>
-                    </div>
-                    <div className="analysis-stats">
-                      <span><strong>{analysis.stableRate}%</strong><small>稳定率</small></span>
-                      <span><strong>{Math.round(analysis.meanAbsMs)}ms</strong><small>平均误差</small></span>
-                      <span>
-                        <strong>{analysis.actualBpm ? Math.round(analysis.actualBpm) : "—"}</strong>
-                        <small>实际 BPM</small>
-                      </span>
-                      <span>
-                        <strong>{analysis.missed} / {analysis.extra}</strong>
-                        <small>漏弹 / 多弹</small>
-                      </span>
-                    </div>
-                    <HistoryComparison current={analysis.record} history={visibleHistory} />
-                    <TimingThumbnail analysis={analysis} />
-                    <div className="timing-legend" aria-label="缩略图图例">
-                      <span className="is-steady">准确 {analysis.onTime}</span>
-                      <span className="is-early">偏快 {analysis.early}</span>
-                      <span className="is-late">偏慢 {analysis.late}</span>
-                      <span className="is-missed">漏弹 {analysis.missed}</span>
-                      <span className="is-extra">多弹 {analysis.extra}</span>
-                    </div>
-                    <TimingBreakdown analysis={analysis} />
-                    <p className="analysis-note">
-                      已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
-                    </p>
-                  </>
-                ) : (
-                  <p className="analysis-empty">
-                    一小节预备拍后开始；{settings.analysisLoop
-                      ? "循环播放至手动停止，最长 2 分钟。"
-                      : "播放当前节奏一遍后自动分析。"}
-                  </p>
-                )}
-                {!analysis && <HistoryComparison current={null} history={visibleHistory} />}
-              </section>
-            )}
-          </div>
-
-          <div className="setting-block rhythm-block" hidden={!advancedRhythm}>
             <div className="rhythm-toolbar">
               <button
                 className={`matrix-icon-button ${settings.loopBar !== null ? "is-active" : ""}`}
@@ -3028,7 +3024,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="setting-block" hidden={advancedRhythm}>
+          <div className="setting-block sound-block">
             <div className="setting-label">
               <span>音色</span>
             </div>
@@ -3048,7 +3044,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="setting-block trainer-block" hidden={advancedRhythm}>
+          <div className="setting-block trainer-block">
             <div className="setting-label trainer-heading">
               <span>自动变速</span>
               <label className="switch">
@@ -3147,7 +3143,7 @@ export default function App() {
             )}
           </div>
 
-          <div className="setting-block volume-block" hidden={advancedRhythm}>
+          <div className="setting-block volume-block">
             <div className="setting-label">
               <span>音量</span>
               <small>{settings.muted ? "静音" : `${settings.volume}%`}</small>
@@ -3175,6 +3171,115 @@ export default function App() {
               />
             </div>
           </div>
+
+          <div className="setting-block analysis-setting" hidden={!advancedRhythm}>
+            <div className="setting-label analysis-setting-heading">
+              <span>
+                <strong>录音分析</strong>
+                <small>对比当前高级节奏，记录练习进步</small>
+              </span>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.rhythmAnalysis}
+                  onChange={(event) =>
+                    updateSettings({ rhythmAnalysis: event.target.checked })
+                  }
+                  disabled={recording}
+                  aria-label="录音分析"
+                />
+                <span aria-hidden="true" />
+              </label>
+            </div>
+
+            {settings.rhythmAnalysis && (
+              <section className="practice-analysis" aria-label="节奏录音分析">
+                <p className="analysis-warning" role="note">
+                  测试中 · 当前功能仍不稳定，暂不建议使用
+                </p>
+                <div className="practice-analysis-heading">
+                  <div className="analysis-mode" role="group" aria-label="节奏播放方式">
+                    <button
+                      className={!settings.analysisLoop ? "is-selected" : ""}
+                      type="button"
+                      onClick={() => updateSettings({ analysisLoop: false })}
+                      disabled={recording}
+                      aria-pressed={!settings.analysisLoop}
+                    >
+                      播放一遍
+                    </button>
+                    <button
+                      className={settings.analysisLoop ? "is-selected" : ""}
+                      type="button"
+                      onClick={() => updateSettings({ analysisLoop: true })}
+                      disabled={recording}
+                      aria-pressed={settings.analysisLoop}
+                    >
+                      循环播放
+                    </button>
+                  </div>
+                  <button
+                    className={`record-button ${recording ? "is-active" : ""}`}
+                    type="button"
+                    onClick={recording ? finishPracticeRecording : beginPracticeRecording}
+                  >
+                    {recording ? <Square fill="currentColor" /> : <Mic />}
+                    {recording ? "停止并分析" : "开始录音"}
+                  </button>
+                  {recordingAudio && !recording && (
+                    <button className="record-button" type="button" onClick={exportPracticeAudio}>
+                      <Download />
+                      导出录音
+                    </button>
+                  )}
+                </div>
+
+                {analysis ? (
+                  <>
+                    <div className="analysis-result-heading">
+                      <span>
+                        <strong>本次结果</strong>
+                        <small>{analysis.expectedCount} 个节奏基准点</small>
+                      </span>
+                    </div>
+                    <div className="analysis-stats">
+                      <span><strong>{analysis.stableRate}%</strong><small>稳定率</small></span>
+                      <span><strong>{Math.round(analysis.meanAbsMs)}ms</strong><small>平均误差</small></span>
+                      <span>
+                        <strong>{analysis.actualBpm ? Math.round(analysis.actualBpm) : "—"}</strong>
+                        <small>实际 BPM</small>
+                      </span>
+                      <span>
+                        <strong>{analysis.missed} / {analysis.extra}</strong>
+                        <small>漏弹 / 多弹</small>
+                      </span>
+                    </div>
+                    <HistoryComparison current={analysis.record} history={visibleHistory} />
+                    <TimingThumbnail analysis={analysis} />
+                    <div className="timing-legend" aria-label="缩略图图例">
+                      <span className="is-steady">准确 {analysis.onTime}</span>
+                      <span className="is-early">偏快 {analysis.early}</span>
+                      <span className="is-late">偏慢 {analysis.late}</span>
+                      <span className="is-missed">漏弹 {analysis.missed}</span>
+                      <span className="is-extra">多弹 {analysis.extra}</span>
+                    </div>
+                    <TimingBreakdown analysis={analysis} />
+                    <p className="analysis-note">
+                      已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
+                    </p>
+                  </>
+                ) : (
+                  <p className="analysis-empty">
+                    一小节预备拍后开始；{settings.analysisLoop
+                      ? "循环播放至手动停止，最长 2 分钟。"
+                      : "播放当前节奏一遍后自动分析。"}
+                  </p>
+                )}
+                {!analysis && <HistoryComparison current={null} history={visibleHistory} />}
+              </section>
+            )}
+          </div>
+
         </aside>
       </main>
       {toast && (
