@@ -130,6 +130,7 @@ const DEFAULT_SETTINGS = {
   countIn: false,
   rhythmAnalysis: false,
   analysisLoop: false,
+  distinguishOffbeats: true,
   volume: 72,
   muted: false,
 };
@@ -175,6 +176,7 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
       countIn: Boolean(saved.countIn),
       rhythmAnalysis: Boolean(saved.rhythmAnalysis),
       analysisLoop: Boolean(saved.analysisLoop),
+      distinguishOffbeats: saved.distinguishOffbeats !== false,
       gapDifficulty: GAP_DIFFICULTIES.some(({ value }) => value === saved.gapDifficulty)
         ? saved.gapDifficulty
         : defaults.gapDifficulty,
@@ -689,6 +691,7 @@ function mediaTrackKey(settings, gapPattern) {
     settings.sound,
     settings.beatTrack,
     settings.rhythmTrack,
+    settings.distinguishOffbeats,
     settings.loopBar,
     settings.bars,
     settings.gapClick,
@@ -1250,7 +1253,12 @@ export default function App() {
           );
         }
         if (!eventGapMuted && current.rhythmTrack && step > 0) {
-          const rhythmSound = soundForRhythmEvent(current.sound, current.beatTrack, event.sub);
+          const rhythmSound = soundForRhythmEvent(
+            current.sound,
+            current.beatTrack,
+            event.sub,
+            current.distinguishOffbeats,
+          );
           const note = SOUND_NOTES[rhythmSound];
           instruments[rhythmSound].triggerAttackRelease(
             step === 2 ? note.accent : note.normal,
@@ -2519,6 +2527,15 @@ export default function App() {
                   ))}
                 </div>
               </div>
+
+              <button
+                className={settings.distinguishOffbeats ? "quick-toggle is-active" : "quick-toggle"}
+                type="button"
+                onClick={() => updateSettings({ distinguishOffbeats: !settings.distinguishOffbeats })}
+                aria-pressed={settings.distinguishOffbeats}
+              >
+                正反拍区分
+              </button>
             </div>
 
             <a

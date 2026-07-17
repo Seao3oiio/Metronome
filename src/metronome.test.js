@@ -596,7 +596,9 @@ test("compound playback separates beat pulses from written note onsets", () => {
 test("single-track rhythm keeps accents and distinguishes onbeats from offbeats", () => {
   assert.equal(soundForRhythmEvent("click", false, 0), "click");
   assert.equal(soundForRhythmEvent("click", false, 1), "drum");
+  assert.equal(soundForRhythmEvent("click", false, 1, false), "click");
   assert.equal(soundForRhythmEvent("click", true, 0), "drum");
+  assert.equal(soundForRhythmEvent("click", true, 1, false), "drum");
 
   const pcm = (steps) => new Int16Array(
     makeClickTrackWav(
@@ -618,4 +620,24 @@ test("single-track rhythm keeps accents and distinguishes onbeats from offbeats"
   const dividedBeat = pcm([1, 1]);
   assert.ok(dividedBeat.subarray(250, 500).every((sample) => sample === 0));
   assert.ok(dividedBeat.subarray(4250, 4500).some(Boolean));
+
+  const mergedOffbeats = new Int16Array(
+    makeClickTrackWav(
+      {
+        bpm: 60,
+        bars: [{ beats: [{ steps: [1, 1] }] }],
+        loopBar: null,
+        sound: "click",
+        beatTrack: false,
+        rhythmTrack: true,
+        distinguishOffbeats: false,
+      },
+      8000,
+    ),
+    44,
+  );
+  assert.deepEqual(
+    [...mergedOffbeats.subarray(0, 400)],
+    [...mergedOffbeats.subarray(4000, 4400)],
+  );
 });

@@ -18,9 +18,11 @@ const RHYTHM_TRACK_SOUNDS = {
   soft: "drum",
 };
 
-export function soundForRhythmEvent(sound, layered, subdivision) {
+export function soundForRhythmEvent(sound, layered, subdivision, distinguishOffbeats = true) {
   const beatSound = TRACK_SOUNDS[sound] ? sound : "click";
-  return layered || subdivision > 0 ? RHYTHM_TRACK_SOUNDS[beatSound] : beatSound;
+  return layered || (distinguishOffbeats && subdivision > 0)
+    ? RHYTHM_TRACK_SOUNDS[beatSound]
+    : beatSound;
 }
 
 export function patchModeSettings(profiles, mode, patch) {
@@ -746,6 +748,7 @@ export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapP
     sound = "click",
     beatTrack = true,
     rhythmTrack = true,
+    distinguishOffbeats = true,
   } = settings;
   const beatSound = TRACK_SOUNDS[sound] ? sound : "click";
   const plan = compileRhythm(bars, loopBar, 1, gapPattern);
@@ -792,7 +795,12 @@ export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapP
         );
       }
       if (rhythmTrack && step > 0) {
-        const rhythmSound = soundForRhythmEvent(beatSound, beatTrack, event.sub);
+        const rhythmSound = soundForRhythmEvent(
+          beatSound,
+          beatTrack,
+          event.sub,
+          distinguishOffbeats,
+        );
         const note = TRACK_SOUNDS[rhythmSound];
         renderClick(
           start,

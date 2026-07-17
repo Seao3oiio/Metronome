@@ -1186,6 +1186,22 @@ input[type="range"]::-moz-range-thumb {
   text-align: center;
 }
 
+.quick-toggle {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-strong);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.quick-toggle.is-active {
+  border-color: rgba(116, 228, 208, 0.3);
+  background: rgba(116, 228, 208, 0.09);
+  color: var(--cyan);
+}
+
 .meter-wheels {
   display: flex;
   gap: 9px;
