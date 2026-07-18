@@ -995,7 +995,7 @@ export default function App() {
       const gapPattern = practice ? [] : makeActiveGapPattern(settingsRef.current);
 
       let mediaAudio = null;
-      if (isIOS) {
+      if (isIOS || modeRef.current === "basic") {
         const countingIn = Boolean(practice) || (settingsRef.current.countIn && !preserveTempo);
         const media = new Audio();
         media.loop = true;
@@ -1320,7 +1320,7 @@ export default function App() {
         let revision;
         do {
           revision = rhythmRevisionRef.current;
-          if (isIOS) {
+          if (isIOS || modeRef.current === "basic") {
             try {
               if (audioRef.current?.media) {
                 audioRef.current.gapPattern = makeActiveGapPattern(settingsRef.current);
