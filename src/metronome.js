@@ -12,7 +12,7 @@ const TRACK_SOUNDS = {
 };
 
 const RHYTHM_TRACK_SOUNDS = {
-  click: "drum",
+  click: "wood",
   wood: "drum",
   drum: "click",
   soft: "drum",
