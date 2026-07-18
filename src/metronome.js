@@ -12,7 +12,7 @@ const TRACK_SOUNDS = {
 };
 
 const RHYTHM_TRACK_SOUNDS = {
-  click: "wood",
+  click: "drum",
   wood: "drum",
   drum: "click",
   soft: "drum",
@@ -23,6 +23,12 @@ export function soundForRhythmEvent(sound, layered, subdivision, distinguishOffb
   return layered || (distinguishOffbeats && subdivision > 0)
     ? RHYTHM_TRACK_SOUNDS[beatSound]
     : beatSound;
+}
+
+export function hasOffbeatSteps(bars) {
+  return bars.some((bar) =>
+    bar.beats.some((beat) => beat.steps.slice(1).some(Boolean)),
+  );
 }
 
 export function patchModeSettings(profiles, mode, patch) {

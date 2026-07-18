@@ -41,6 +41,7 @@ import {
   cycleBeatState,
   decodeRhythm,
   encodeRhythm,
+  hasOffbeatSteps,
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
@@ -2147,6 +2148,7 @@ export default function App() {
   const quickPattern = simpleRhythm
     ? QUICK_PATTERNS.find(({ steps }) => JSON.stringify(steps) === JSON.stringify(quickSteps))?.id
     : "";
+  const quickHasOffbeats = hasOffbeatSteps(settings.bars);
   const matrixHeight =
     Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
       48 +
@@ -2529,10 +2531,15 @@ export default function App() {
               </div>
 
               <button
-                className={settings.distinguishOffbeats ? "quick-toggle is-active" : "quick-toggle"}
+                className={
+                  settings.distinguishOffbeats && quickHasOffbeats
+                    ? "quick-toggle is-active"
+                    : "quick-toggle"
+                }
                 type="button"
                 onClick={() => updateSettings({ distinguishOffbeats: !settings.distinguishOffbeats })}
-                aria-pressed={settings.distinguishOffbeats}
+                aria-pressed={settings.distinguishOffbeats && quickHasOffbeats}
+                disabled={!quickHasOffbeats}
               >
                 正反拍区分
               </button>

@@ -16,6 +16,7 @@ import {
   decodeRhythm,
   detectGuitarOnsets,
   encodeRhythm,
+  hasOffbeatSteps,
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
@@ -594,11 +595,15 @@ test("compound playback separates beat pulses from written note onsets", () => {
 });
 
 test("single-track rhythm keeps accents and distinguishes onbeats from offbeats", () => {
+  assert.equal(hasOffbeatSteps([makeBar(4, 1)]), false);
+  assert.equal(hasOffbeatSteps([makeBar(4, 2)]), true);
+  assert.equal(hasOffbeatSteps([{ beats: [{ steps: [1, 0] }] }]), false);
+
   assert.equal(soundForRhythmEvent("click", false, 0), "click");
-  assert.equal(soundForRhythmEvent("click", false, 1), "wood");
+  assert.equal(soundForRhythmEvent("click", false, 1), "drum");
   assert.equal(soundForRhythmEvent("click", false, 1, false), "click");
-  assert.equal(soundForRhythmEvent("click", true, 0), "wood");
-  assert.equal(soundForRhythmEvent("click", true, 1, false), "wood");
+  assert.equal(soundForRhythmEvent("click", true, 0), "drum");
+  assert.equal(soundForRhythmEvent("click", true, 1, false), "drum");
 
   const pcm = (steps) => new Int16Array(
     makeClickTrackWav(
