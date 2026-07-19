@@ -1263,7 +1263,7 @@ export default function App() {
       playingRef.current = true;
       setPlaying(true);
       setStatus(countInTicks ? "预备 1 小节" : "运行中");
-      transport.start(preserveTempo ? "+0.025" : "+0.05");
+      transport.start(countInTicks ? "+0.2" : preserveTempo ? "+0.025" : "+0.05");
     } catch {
       if (run === generationRef.current) stop("请再次点击");
     } finally {
