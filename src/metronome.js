@@ -31,6 +31,11 @@ export function hasOffbeatSteps(bars) {
   );
 }
 
+export function nextQuickPatternId(current, patch) {
+  if ("quickPatternId" in patch) return patch.quickPatternId;
+  return "bars" in patch || "beatUnit" in patch ? null : current;
+}
+
 const GAP_RANGES = {
   easy: { sound: [3, 5], mute: [1, 1] },
   medium: { sound: [2, 4], mute: [1, 2] },

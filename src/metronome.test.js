@@ -24,6 +24,7 @@ import {
   moveBarSelection,
   normalizeBars,
   normalizeLoopRange,
+  nextQuickPatternId,
   nextTrainingBpm,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
@@ -182,6 +183,14 @@ test("tempo helpers keep practice input inside the supported range", () => {
   assert.equal(bpmFromTaps([0, 500, 1000, 1500]), 120);
   assert.equal(bpmFromTaps([0]), null);
   assert.equal(tempoName(120), "快板 · Allegro");
+});
+
+test("quick presets and custom rhythm structure are mutually exclusive", () => {
+  assert.equal(nextQuickPatternId("eighths", { bpm: 120 }), "eighths");
+  assert.equal(nextQuickPatternId("eighths", { loopBar: [0, 0] }), "eighths");
+  assert.equal(nextQuickPatternId("eighths", { bars: [] }), null);
+  assert.equal(nextQuickPatternId("eighths", { beatUnit: 8 }), null);
+  assert.equal(nextQuickPatternId("eighths", { bars: [], quickPatternId: "triplet" }), "triplet");
 });
 
 test("rhythm data and tempo training stay predictable", () => {
