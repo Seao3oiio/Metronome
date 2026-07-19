@@ -1040,7 +1040,8 @@ input[type="range"]::-moz-range-thumb {
   backdrop-filter: blur(18px);
 }
 
-.advanced-transport > button {
+.advanced-transport > button,
+.advanced-playback > button {
   display: inline-flex;
   min-width: 44px;
   min-height: 48px;
@@ -1055,8 +1056,15 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-.advanced-transport > button svg {
+.advanced-transport > button svg,
+.advanced-playback > button svg {
   width: 17px;
+}
+
+.advanced-playback {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
 }
 
 .advanced-transport > .tempo-step {
@@ -1066,7 +1074,8 @@ input[type="range"]::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
 }
 
-.advanced-transport > button:disabled {
+.advanced-transport > button:disabled,
+.advanced-playback > button:disabled {
   opacity: 0.38;
   cursor: default;
 }
@@ -1104,11 +1113,15 @@ input[type="range"]::-moz-range-thumb {
   font-style: normal;
 }
 
-.advanced-transport > .advanced-play {
+.advanced-playback > .advanced-play {
   border-color: rgba(139, 123, 255, 0.28);
   background: linear-gradient(135deg, rgba(170, 159, 255, 0.95), rgba(120, 103, 244, 0.95));
   color: #101019;
   font-weight: 750;
+}
+
+.advanced-playback > .advanced-restart {
+  font-weight: 650;
 }
 
 .advanced-transport > .advanced-tap {
@@ -2018,6 +2031,12 @@ footer {
   }
 }
 
+@media (max-width: 960px) {
+  .advanced-restart span {
+    display: none;
+  }
+}
+
 @media (max-width: 840px) {
   .app-shell {
     width: min(720px, 100%);
@@ -2161,7 +2180,7 @@ footer {
     min-width: 0;
   }
 
-  .advanced-transport > .advanced-play {
+  .advanced-playback {
     grid-column: 1 / 5;
   }
 
@@ -2172,6 +2191,10 @@ footer {
 
   .advanced-tap span {
     display: none;
+  }
+
+  .advanced-restart span {
+    display: inline;
   }
 
   .settings-heading h2 {

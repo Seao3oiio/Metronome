@@ -15,6 +15,7 @@ import {
   Plus,
   Repeat2,
   Redo2,
+  RotateCcw,
   Save,
   Share2,
   Square,
@@ -707,13 +708,14 @@ async function syncMediaLoop(audio, settings) {
     candidate.loop = true;
     candidate.preload = "auto";
     candidate.setAttribute("playsinline", "");
-    candidate.volume = audio.countingIn ? 0 : audio.targetVolume;
+    candidate.volume = audio.countingIn || audio.paused ? 0 : audio.targetVolume;
     candidate.src = url;
     audio.pendingCandidate = candidate;
     audio.pendingUrl = url;
 
     try {
       await candidate.play();
+      if (audio.paused) candidate.pause();
     } catch (error) {
       if (audio.pendingCandidate === candidate) {
         audio.pendingCandidate = null;
@@ -764,6 +766,7 @@ export default function App() {
   const [settings, setSettings] = useState(() => loadSettings(SETTINGS_KEY, LEGACY_SETTINGS_KEY));
   const [bpmDraft, setBpmDraft] = useState(String(settings.bpm));
   const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [status, setStatusValue] = useState("就绪");
   const [visual, setVisual] = useState({
     bar: 0,
@@ -800,6 +803,7 @@ export default function App() {
 
   const settingsRef = useRef(settings);
   const playingRef = useRef(false);
+  const pausedRef = useRef(false);
   const playbackIntentRef = useRef(false);
   const startingRef = useRef(false);
   const refreshingRef = useRef(false);
@@ -818,6 +822,29 @@ export default function App() {
   const replaceSettings = useCallback((next) => {
     settingsRef.current = next;
     setSettings(next);
+  }, []);
+
+  const disposeAudio = useCallback(() => {
+    if (!audioRef.current) return;
+    if (audioRef.current?.media) {
+      audioRef.current.syncRevision = (audioRef.current.syncRevision ?? 0) + 1;
+      cancelAnimationFrame(audioRef.current.raf);
+      audioRef.current.countInResolve?.();
+      releaseMedia(audioRef.current.countInMedia, audioRef.current.countInUrl);
+      releaseMedia(audioRef.current.pendingCandidate, audioRef.current.pendingUrl);
+      releaseMedia(audioRef.current.media, audioRef.current.url);
+      audioRef.current = null;
+      return;
+    }
+    const transport = Tone.getTransport();
+    transport.stop();
+    transport.cancel(0);
+    Tone.getDraw().cancel(0);
+    audioRef.current?.part.dispose();
+    audioRef.current?.countInPart?.dispose();
+    Object.values(audioRef.current?.instruments ?? {}).forEach((instrument) => instrument.dispose());
+    audioRef.current?.output.dispose();
+    audioRef.current = null;
   }, []);
 
   const updateSettings = useCallback((patch, recordHistory = true) => {
@@ -846,48 +873,46 @@ export default function App() {
     }
 
     const next = { ...current, ...patch, quickPatternId };
+    const keepsPausedPosition = Object.keys(patch).every(
+      (key) => key === "volume" || key === "muted",
+    );
+    if (pausedRef.current && !keepsPausedPosition) {
+      generationRef.current += 1;
+      pausedRef.current = false;
+      playbackIntentRef.current = false;
+      startingRef.current = false;
+      setPlaying(false);
+      setPaused(false);
+      setVisual({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false, gap: false });
+      disposeAudio();
+      setAudioSession("auto");
+      setStatus("设置已更新 · 将从头开始");
+    }
     if (rhythmChanged || "bpm" in patch) {
       setAnalysis(null);
     }
     settingsRef.current = next;
     setSettings(next);
+    if (audioRef.current?.media && pausedRef.current) {
+      const volume = next.muted ? 0 : next.volume / 100;
+      audioRef.current.targetVolume = volume;
+      audioRef.current.media.volume = audioRef.current.countingIn ? 0 : volume;
+      if (audioRef.current.countInMedia) audioRef.current.countInMedia.volume = volume;
+    }
     if (audioRef.current?.media && playingRef.current) {
       syncMediaLoop(audioRef.current, next).catch(() => {
         if (playbackIntentRef.current) setStatus("继续播放原节奏");
       });
     }
-  }, []);
+  }, [disposeAudio, setStatus]);
 
   const setBpm = useCallback(
     (value) => updateSettings({ bpm: clampBpm(value) }),
     [updateSettings],
   );
 
-  const disposeAudio = useCallback(() => {
-    if (!audioRef.current) return;
-    if (audioRef.current?.media) {
-      audioRef.current.syncRevision = (audioRef.current.syncRevision ?? 0) + 1;
-      cancelAnimationFrame(audioRef.current.raf);
-      audioRef.current.countInResolve?.();
-      releaseMedia(audioRef.current.countInMedia, audioRef.current.countInUrl);
-      releaseMedia(audioRef.current.pendingCandidate, audioRef.current.pendingUrl);
-      releaseMedia(audioRef.current.media, audioRef.current.url);
-      audioRef.current = null;
-      return;
-    }
-    const transport = Tone.getTransport();
-    transport.stop();
-    transport.cancel(0);
-    Tone.getDraw().cancel(0);
-    audioRef.current?.part.dispose();
-    audioRef.current?.countInPart?.dispose();
-    Object.values(audioRef.current?.instruments ?? {}).forEach((instrument) => instrument.dispose());
-    audioRef.current?.output.dispose();
-    audioRef.current = null;
-  }, []);
-
   const stop = useCallback(
-    (message = "已暂停") => {
+    (message = "已停止") => {
       const recordingSession = recordingRef.current;
       if (recordingSession && !recordingSession.stopping) {
         if (recordingSession.loop && recordingSession.rhythmStartedAt) {
@@ -907,8 +932,10 @@ export default function App() {
       generationRef.current += 1;
       playbackIntentRef.current = false;
       playingRef.current = false;
+      pausedRef.current = false;
       startingRef.current = false;
       setPlaying(false);
+      setPaused(false);
       setVisual({ bar: 0, beat: 0, sub: 0, pulse: 0, hit: false, gap: false });
       setStatus(message);
       disposeAudio();
@@ -916,6 +943,85 @@ export default function App() {
     },
     [disposeAudio],
   );
+
+  const pausePlayback = useCallback(() => {
+    if (!playingRef.current || recordingRef.current || !audioRef.current) return;
+    const audio = audioRef.current;
+    playingRef.current = false;
+    pausedRef.current = true;
+    setPlaying(false);
+    setPaused(true);
+    if (audio.media) {
+      cancelAnimationFrame(audio.raf);
+      audio.paused = true;
+      audio.pausedAt = performance.now() / 1000;
+      audio.countInMedia?.pause();
+      audio.pendingCandidate?.pause();
+      audio.media.pause();
+    } else {
+      audio.output.gain.rampTo(0, 0.01);
+      const transport = Tone.getTransport();
+      if (transport.state === "started") transport.pause();
+      else transport.stop();
+    }
+    setStatus("已暂停");
+    setAudioSession("auto");
+  }, [setStatus]);
+
+  const resumePlayback = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!pausedRef.current || playingRef.current || !audio) return;
+    playingRef.current = true;
+    pausedRef.current = false;
+    setPlaying(true);
+    setPaused(false);
+    setAudioSession("playback");
+    try {
+      if (audio.media) {
+        audio.paused = false;
+        const now = performance.now() / 1000;
+        if (audio.pausedAt) audio.startedAt += now - audio.pausedAt;
+        audio.pausedAt = null;
+        if (audio.countingIn && audio.countInMedia) {
+          const plays = [audio.countInMedia.play()];
+          if (audio.activeRhythm && audio.media.paused) plays.push(audio.media.play());
+          await Promise.all(plays);
+        } else {
+          await syncMediaLoop(audio, settingsRef.current);
+          audio.media.volume = audio.targetVolume;
+          if (audio.media.paused) await audio.media.play();
+          if (audio.draw) audio.raf = requestAnimationFrame(audio.draw);
+        }
+      } else {
+        await Tone.start();
+        audio.output.gain.rampTo(
+          settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
+          0.03,
+        );
+        Tone.getTransport().start("+0.05");
+      }
+      setStatus(audio.countingIn ? "预备 1 小节" : "运行中");
+    } catch {
+      if (audio.media) {
+        audio.paused = true;
+        audio.pausedAt = performance.now() / 1000;
+        audio.countInMedia?.pause();
+        audio.pendingCandidate?.pause();
+        audio.media.pause();
+      } else {
+        audio.output.gain.rampTo(0, 0.01);
+        const transport = Tone.getTransport();
+        if (transport.state === "started") transport.pause();
+        else transport.stop();
+      }
+      playingRef.current = false;
+      pausedRef.current = true;
+      setPlaying(false);
+      setPaused(true);
+      setStatus("请再次点击");
+      setAudioSession("auto");
+    }
+  }, [setStatus]);
 
   const travelHistory = (direction) => {
     const history = historyRef.current;
@@ -942,6 +1048,8 @@ export default function App() {
   const start = useCallback(async (preserveTempo = false, practice = null) => {
     if (startingRef.current || playingRef.current) return;
     startingRef.current = true;
+    pausedRef.current = false;
+    setPaused(false);
     setStatus("开启声音…");
     disposeAudio();
     const run = ++generationRef.current;
@@ -982,6 +1090,8 @@ export default function App() {
           countInResolve: null,
           targetVolume: settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
           gapPattern,
+          pausedAt: null,
+          paused: false,
           startedAt: performance.now() / 1000,
         };
         audioRef.current = mediaAudio;
@@ -1038,15 +1148,24 @@ export default function App() {
           mediaAudio.media.currentTime = 0;
           mediaAudio.media.loop = practice?.loop !== false;
           mediaAudio.media.volume = mediaAudio.targetVolume;
+          if (!pausedRef.current && mediaAudio.media.paused) await mediaAudio.media.play();
         }
         mediaAudio.startedAt = performance.now() / 1000;
-        practice?.onStart?.();
+        if (!pausedRef.current) practice?.onStart?.();
 
         barsRef.current = 0;
         minuteDeadlineRef.current = 60;
-        playingRef.current = true;
-        setPlaying(true);
-        setStatus(practice?.loop ? "录音中 · 循环" : practice ? "录音中" : "运行中");
+        playingRef.current = !pausedRef.current;
+        setPlaying(!pausedRef.current);
+        setStatus(
+          pausedRef.current
+            ? "已暂停"
+            : practice?.loop
+              ? "录音中 · 循环"
+              : practice
+                ? "录音中"
+                : "运行中",
+        );
 
         const draw = () => {
           if (generationRef.current !== run || !playingRef.current) return;
@@ -1105,7 +1224,8 @@ export default function App() {
           mediaAudio.lastTime = activeMedia.currentTime;
           mediaAudio.raf = requestAnimationFrame(draw);
         };
-        mediaAudio.raf = requestAnimationFrame(draw);
+        mediaAudio.draw = draw;
+        if (!pausedRef.current) mediaAudio.raf = requestAnimationFrame(draw);
         return;
       }
 
@@ -1196,7 +1316,7 @@ export default function App() {
             settingsRef.current = current;
             transport.bpm.setValueAtTime(nextBpm, time);
             Tone.getDraw().schedule(() => {
-              if (generationRef.current === run) {
+              if (generationRef.current === run && playingRef.current) {
                 updateSettings({ bpm: nextBpm }, false);
               }
             }, time);
@@ -1249,17 +1369,25 @@ export default function App() {
       part.loop = practice?.loop !== false;
       part.start(Tone.Ticks(countInTicks));
 
+      const toneAudio = {
+        part,
+        countInPart,
+        instruments,
+        output,
+        countingIn: Boolean(countInTicks),
+      };
       if (countInTicks || practice) {
         transport.scheduleOnce((time) => {
+          toneAudio.countingIn = false;
           Tone.getDraw().schedule(() => {
-            if (generationRef.current !== run) return;
+            if (generationRef.current !== run || !playingRef.current) return;
             setStatus(practice?.loop ? "录音中 · 循环" : practice ? "录音中" : "运行中");
             practice?.onStart?.();
           }, time);
         }, Tone.Ticks(countInTicks));
       }
 
-      audioRef.current = { part, countInPart, instruments, output };
+      audioRef.current = toneAudio;
       playingRef.current = true;
       setPlaying(true);
       setStatus(countInTicks ? "预备 1 小节" : "运行中");
@@ -1303,8 +1431,16 @@ export default function App() {
   );
 
   const togglePlayback = useCallback(async () => {
-    if (playbackIntentRef.current) {
+    if (recordingRef.current) {
       stop();
+      return;
+    }
+    if (playingRef.current) {
+      pausePlayback();
+      return;
+    }
+    if (pausedRef.current) {
+      await resumePlayback();
       return;
     }
     playbackIntentRef.current = true;
@@ -1313,7 +1449,14 @@ export default function App() {
     if (playbackIntentRef.current && revision !== rhythmRevisionRef.current) {
       await refreshPlayback();
     }
-  }, [refreshPlayback, start, stop]);
+  }, [pausePlayback, refreshPlayback, resumePlayback, start, stop]);
+
+  const restartPlayback = useCallback(async () => {
+    if (recordingRef.current) return;
+    stop("重新开始");
+    playbackIntentRef.current = true;
+    await start();
+  }, [start, stop]);
 
   const finishPracticeRecording = useCallback(() => {
     if (recordingRef.current) stop();
@@ -1485,11 +1628,11 @@ export default function App() {
       // Private browsing can deny storage; playback should still work.
     }
 
-    if (audioRef.current?.media) {
+    if (audioRef.current?.media && playingRef.current) {
       syncMediaLoop(audioRef.current, settings).catch(() => {
         if (playbackIntentRef.current) setStatus("继续播放原节奏");
       });
-    } else {
+    } else if (!audioRef.current?.media) {
       const bpm = Tone.getTransport().bpm;
       if (Math.round(bpm.value) !== settings.bpm) bpm.value = settings.bpm;
     }
@@ -1570,6 +1713,7 @@ export default function App() {
       generationRef.current += 1;
       playbackIntentRef.current = false;
       playingRef.current = false;
+      pausedRef.current = false;
       disposeAudio();
       setAudioSession("auto");
     },
@@ -1616,7 +1760,8 @@ export default function App() {
   }, [toast]);
 
   const applyQuickRhythm = (patch) => {
-    const resume = playbackIntentRef.current;
+    const resume = playingRef.current;
+    if (playbackIntentRef.current && !resume) stop("节奏已更新");
     rhythmRevisionRef.current += 1;
     updateSettings(patch);
     if (!resume) return;
@@ -2154,6 +2299,8 @@ export default function App() {
     }
   };
 
+  const playbackActionLabel = playing ? "暂停" : paused ? "继续" : "开始";
+
   return (
     <div className={`app-shell ${playing ? "is-playing" : ""} ${recording ? "is-recording" : ""}`}>
       <header className="topbar">
@@ -2168,14 +2315,18 @@ export default function App() {
             <span aria-hidden="true" />
             {status}
           </div>
-          {playing && (
+          {(playing || paused) && (
             <button
               className="topbar-stop"
               type="button"
-              onClick={recording ? finishPracticeRecording : () => stop()}
+              onClick={recording ? finishPracticeRecording : playing ? pausePlayback : resumePlayback}
             >
-              <Pause fill="currentColor" />
-              {recording ? "结束录音" : "暂停"}
+              {recording
+                ? <Square fill="currentColor" />
+                : playing
+                  ? <Pause fill="currentColor" />
+                  : <Play fill="currentColor" />}
+              {recording ? "结束录音" : playbackActionLabel}
             </button>
           )}
         </div>
@@ -2314,16 +2465,30 @@ export default function App() {
             >
               +10
             </button>
-            <button
-              className="advanced-play"
-              type="button"
-              onClick={togglePlayback}
-              aria-pressed={playing}
-              disabled={recording}
-            >
-              {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
-              <span>{playing ? "暂停" : "开始"}</span>
-            </button>
+            <div className="advanced-playback" role="group" aria-label="播放控制">
+              <button
+                className="advanced-play"
+                type="button"
+                onClick={togglePlayback}
+                aria-label={playbackActionLabel}
+                aria-keyshortcuts="Space"
+                disabled={recording}
+              >
+                {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
+                <span>{playbackActionLabel}</span>
+              </button>
+              <button
+                className="advanced-restart"
+                type="button"
+                onClick={restartPlayback}
+                aria-label="重新开始"
+                title="重新开始"
+                disabled={recording || (!playing && !paused)}
+              >
+                <RotateCcw />
+                <span>重新开始</span>
+              </button>
+            </div>
             <button
               className="advanced-tap"
               type="button"
@@ -2476,6 +2641,105 @@ export default function App() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="setting-block trainer-block">
+            <div className="setting-label trainer-heading">
+              <span>自动变速</span>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.trainer}
+                  onChange={(event) => changeTrainer({ trainer: event.target.checked })}
+                  aria-label="自动变速"
+                />
+                <span aria-hidden="true" />
+              </label>
+            </div>
+            {settings.trainer && (
+              <div className="trainer-grid">
+                <label>
+                  <span>起始</span>
+                  <span className="field-with-unit">
+                    <input
+                      key={settings.startBpm}
+                      type="number"
+                      min={BPM_MIN}
+                      max={BPM_MAX}
+                      defaultValue={settings.startBpm}
+                      onBlur={(event) => {
+                        const value = clampBpm(event.currentTarget.value);
+                        event.currentTarget.value = value;
+                        changeTrainer({ startBpm: value });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                    />
+                    <em>BPM</em>
+                  </span>
+                </label>
+                <label>
+                  <span>目标</span>
+                  <span className="field-with-unit">
+                    <input
+                      key={settings.targetBpm}
+                      type="number"
+                      min={BPM_MIN}
+                      max={BPM_MAX}
+                      defaultValue={settings.targetBpm}
+                      onBlur={(event) => {
+                        const value = clampBpm(event.currentTarget.value);
+                        event.currentTarget.value = value;
+                        changeTrainer({ targetBpm: value });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                    />
+                    <em>BPM</em>
+                  </span>
+                </label>
+                <label>
+                  <span>间隔</span>
+                  <select
+                    value={
+                      settings.changeMode === "minute"
+                        ? "minute"
+                        : `bars-${settings.changeEvery}`
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      changeTrainer(
+                        value === "minute"
+                          ? { changeMode: "minute" }
+                          : { changeMode: "bars", changeEvery: Number(value.slice(5)) },
+                      );
+                    }}
+                  >
+                    {[1, 2, 4, 8, 16].map((bars) => (
+                      <option key={bars} value={`bars-${bars}`}>
+                        {bars} 小节
+                      </option>
+                    ))}
+                    <option value="minute">每分钟</option>
+                  </select>
+                </label>
+                <label>
+                  <span>步长</span>
+                  <select
+                    value={settings.changeAmount}
+                    onChange={(event) => changeTrainer({ changeAmount: Number(event.target.value) })}
+                  >
+                    {[1, 2, 3, 5, 10].map((amount) => (
+                      <option key={amount} value={amount}>
+                        {amount} BPM
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
           </div>
 
           <div className="setting-block rhythm-block">
@@ -2806,105 +3070,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-          </div>
-
-          <div className="setting-block trainer-block">
-            <div className="setting-label trainer-heading">
-              <span>自动变速</span>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={settings.trainer}
-                  onChange={(event) => changeTrainer({ trainer: event.target.checked })}
-                  aria-label="自动变速"
-                />
-                <span aria-hidden="true" />
-              </label>
-            </div>
-            {settings.trainer && (
-              <div className="trainer-grid">
-                <label>
-                  <span>起始</span>
-                  <span className="field-with-unit">
-                    <input
-                      key={settings.startBpm}
-                      type="number"
-                      min={BPM_MIN}
-                      max={BPM_MAX}
-                      defaultValue={settings.startBpm}
-                      onBlur={(event) => {
-                        const value = clampBpm(event.currentTarget.value);
-                        event.currentTarget.value = value;
-                        changeTrainer({ startBpm: value });
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                      }}
-                    />
-                    <em>BPM</em>
-                  </span>
-                </label>
-                <label>
-                  <span>目标</span>
-                  <span className="field-with-unit">
-                    <input
-                      key={settings.targetBpm}
-                      type="number"
-                      min={BPM_MIN}
-                      max={BPM_MAX}
-                      defaultValue={settings.targetBpm}
-                      onBlur={(event) => {
-                        const value = clampBpm(event.currentTarget.value);
-                        event.currentTarget.value = value;
-                        changeTrainer({ targetBpm: value });
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                      }}
-                    />
-                    <em>BPM</em>
-                  </span>
-                </label>
-                <label>
-                  <span>间隔</span>
-                  <select
-                    value={
-                      settings.changeMode === "minute"
-                        ? "minute"
-                        : `bars-${settings.changeEvery}`
-                    }
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      changeTrainer(
-                        value === "minute"
-                          ? { changeMode: "minute" }
-                          : { changeMode: "bars", changeEvery: Number(value.slice(5)) },
-                      );
-                    }}
-                  >
-                    {[1, 2, 4, 8, 16].map((bars) => (
-                      <option key={bars} value={`bars-${bars}`}>
-                        {bars} 小节
-                      </option>
-                    ))}
-                    <option value="minute">每分钟</option>
-                  </select>
-                </label>
-                <label>
-                  <span>步长</span>
-                  <select
-                    value={settings.changeAmount}
-                    onChange={(event) => changeTrainer({ changeAmount: Number(event.target.value) })}
-                  >
-                    {[1, 2, 3, 5, 10].map((amount) => (
-                      <option key={amount} value={amount}>
-                        {amount} BPM
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
           </div>
 
           <div className="setting-block volume-block">
