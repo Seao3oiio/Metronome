@@ -1314,6 +1314,7 @@ export default function App() {
           if (nextBpm !== current.bpm) {
             current = { ...current, bpm: nextBpm };
             settingsRef.current = current;
+            setBpmDraft(String(nextBpm));
             transport.bpm.setValueAtTime(nextBpm, time);
             Tone.getDraw().schedule(() => {
               if (generationRef.current === run && playingRef.current) {

@@ -834,7 +834,13 @@ input[type="range"]::-moz-range-thumb {
 
 .quick-composer {
   display: grid;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 176px;
+  gap: 8px 14px;
+  align-items: end;
+}
+
+.quick-composer > .quick-group:first-child {
+  grid-row: 1 / span 2;
 }
 
 .quick-group {
@@ -850,7 +856,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .quick-toggle {
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
@@ -867,22 +873,22 @@ input[type="range"]::-moz-range-thumb {
 
 .meter-wheels {
   display: flex;
-  gap: 9px;
+  gap: 5px;
   align-items: center;
   justify-content: center;
 }
 
 .meter-wheels select {
-  width: 72px;
-  height: 58px;
-  padding: 0 8px;
+  width: 58px;
+  height: 48px;
+  padding: 0 4px;
   appearance: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
   outline: 0;
   background: rgba(7, 9, 13, 0.42);
   color: var(--text);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 800;
   text-align: center;
   text-align-last: center;
@@ -903,7 +909,7 @@ input[type="range"]::-moz-range-thumb {
 
 .meter-wheels > span {
   color: var(--cyan);
-  font-size: 25px;
+  font-size: 20px;
   font-weight: 750;
 }
 
@@ -926,7 +932,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .rhythm-preset-grid button {
-  min-height: 68px;
+  min-height: 60px;
 }
 
 .rhythm-preset-grid button.is-selected {
@@ -2094,6 +2100,24 @@ footer {
 }
 
 @media (max-width: 560px) {
+  .quick-composer {
+    grid-template-columns: minmax(116px, 1fr) minmax(80px, 0.8fr);
+    gap: 10px;
+  }
+
+  .quick-composer > .quick-group:first-child {
+    grid-row: auto;
+    grid-column: 1 / -1;
+  }
+
+  .meter-wheels select {
+    width: 52px;
+  }
+
+  .meter-wheels {
+    gap: 2px;
+  }
+
   .app-shell {
     padding: max(15px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
       max(18px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
