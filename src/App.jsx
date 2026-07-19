@@ -120,7 +120,7 @@ const DEFAULT_SETTINGS = {
   targetBpm: 120,
   changeMode: "bars",
   changeEvery: 4,
-  changeAmount: 2,
+  changeAmount: 10,
   gapClick: false,
   gapDifficulty: "medium",
   countIn: false,
@@ -166,7 +166,7 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
       changeEvery: [1, 2, 4, 8, 16].includes(saved.changeEvery) ? saved.changeEvery : 4,
       changeAmount: [1, 2, 3, 5, 10].includes(saved.changeAmount)
         ? saved.changeAmount
-        : 2,
+        : defaults.changeAmount,
       volume: Number.isFinite(Number(saved.volume))
         ? Math.min(100, Math.max(0, Number(saved.volume)))
         : defaults.volume,
