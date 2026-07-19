@@ -31,10 +31,6 @@ export function hasOffbeatSteps(bars) {
   );
 }
 
-export function patchModeSettings(profiles, mode, patch) {
-  return { ...profiles, [mode]: { ...profiles[mode], ...patch } };
-}
-
 const GAP_RANGES = {
   easy: { sound: [3, 5], mute: [1, 1] },
   medium: { sound: [2, 4], mute: [1, 2] },

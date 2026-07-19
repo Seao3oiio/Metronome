@@ -25,7 +25,6 @@ import {
   normalizeBars,
   normalizeLoopRange,
   nextTrainingBpm,
-  patchModeSettings,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   removeBarSelection,
@@ -33,26 +32,6 @@ import {
   tempoName,
   toggleBeatStep,
 } from "./metronome.js";
-
-test("basic and advanced settings stay independent", () => {
-  const basic = { bpm: 96, sound: "click", bars: [makeBar(4)], countIn: false };
-  const advanced = { bpm: 120, sound: "wood", bars: [makeBar(3)], countIn: true };
-
-  const changedAdvanced = patchModeSettings(
-    { basic, advanced },
-    "advanced",
-    { bpm: 132, sound: "drum", bars: [makeBar(5)] },
-  );
-  assert.strictEqual(changedAdvanced.basic, basic);
-  assert.equal(changedAdvanced.basic.bpm, 96);
-  assert.equal(changedAdvanced.advanced.bpm, 132);
-  assert.equal(changedAdvanced.advanced.sound, "drum");
-
-  const changedBasic = patchModeSettings(changedAdvanced, "basic", { bpm: 72 });
-  assert.strictEqual(changedBasic.advanced, changedAdvanced.advanced);
-  assert.equal(changedBasic.basic.bpm, 72);
-  assert.equal(changedBasic.advanced.bpm, 132);
-});
 
 test("notation glyphs cover every supported note value", () => {
   assert.deepEqual(Object.keys(FLAG_GLYPHS), ["1", "2", "3", "4"]);
