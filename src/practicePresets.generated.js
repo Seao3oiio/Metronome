@@ -9537,7 +9537,6 @@ export const PRACTICE_PRESET_WEEKS = [
                 "beats": [
                   {
                     "steps": [
-                      1,
                       1
                     ]
                   },
@@ -9548,7 +9547,7 @@ export const PRACTICE_PRESET_WEEKS = [
                   },
                   {
                     "steps": [
-                      0
+                      1
                     ]
                   },
                   {

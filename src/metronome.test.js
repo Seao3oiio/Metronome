@@ -126,7 +126,7 @@ test("Five Hundred Miles preserves its eighth notes and tied continuations", () 
 
   assert.deepEqual(preset.bars.map(({ beats }) => beats.map(({ steps }) => steps)), [
     [[1], [1], [1], [0, 1]],
-    [[1, 1], [1], [0], [0]],
+    [[1], [1], [1], [0]],
     [[1], [1], [1], [0, 1]],
     [[1, 1], [0], [1], [0]],
     [[1], [1], [1], [0, 1]],

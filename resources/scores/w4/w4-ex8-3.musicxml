@@ -20,10 +20,10 @@
     </measure>
     <measure number="2">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>12</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>12</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
-      <note><rest/><duration>48</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><rest/><duration>24</duration></note>
     </measure>
     <measure number="3">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
