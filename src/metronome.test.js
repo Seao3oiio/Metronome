@@ -119,6 +119,23 @@ test("Du Xuan C keeps its pickup and loops the following two bars", () => {
   assert.deepEqual(preset.loopBar, [1, 2]);
 });
 
+test("Five Hundred Miles preserves its eighth notes and tied continuations", () => {
+  const preset = PRACTICE_PRESET_WEEKS[3].exercises
+    .find(({ id }) => id === "w4-ex8")
+    .presets.find(({ id }) => id === "w4-ex8-3");
+
+  assert.deepEqual(preset.bars.map(({ beats }) => beats.map(({ steps }) => steps)), [
+    [[1], [1], [1], [0, 1]],
+    [[1, 1], [1], [0], [0]],
+    [[1], [1], [1], [0, 1]],
+    [[1, 1], [0], [1], [0]],
+    [[1], [1], [1], [0, 1]],
+    [[1, 1], [0], [1], [0, 1]],
+    [[1], [1], [0], [1]],
+    [[0], [0], [0], [0]],
+  ]);
+});
+
 test("MusicXML converts rests, durations, chords, ties, and accents to note onsets", () => {
   const xml = `<?xml version="1.0"?>
     <score-partwise version="4.0">
