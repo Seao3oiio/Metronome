@@ -1786,7 +1786,6 @@ export default function App() {
   };
 
   const resizeBeat = (beatIndex, amount) => {
-    if (settingsRef.current.quickPatternId) return;
     const length = settingsRef.current.bars[editorBarIndex].beats[beatIndex].steps.length;
     if ((amount < 0 && length === 1) || (amount > 0 && length === MAX_SUBDIVISION)) return;
     updateBeat(
@@ -1808,7 +1807,6 @@ export default function App() {
   };
 
   const resizeBar = (amount) => {
-    if (settingsRef.current.quickPatternId) return;
     const bars = settingsRef.current.bars;
     const bar = bars[editorBarIndex];
     if ((amount < 0 && bar.beats.length === 1) || (amount > 0 && bar.beats.length === MAX_BEATS)) {
@@ -1980,7 +1978,6 @@ export default function App() {
   const changeQuickMeter = (beats) => {
     const current = settingsRef.current;
     const index = Math.min(editorBarIndex, current.bars.length - 1);
-    if (current.quickPatternId) return;
     const bar = current.bars[index];
     const resizedBeats = Array.from({ length: beats }, (_, beatIndex) =>
       cloneBeat(bar.beats[Math.min(beatIndex, bar.beats.length - 1)]),
@@ -1993,20 +1990,15 @@ export default function App() {
   };
 
   const changeQuickPattern = (option) => {
-    if (recordingRef.current) {
-      setStatus("请先完成录音");
-      return;
-    }
-    const presetBeats = makeBar(4, 1).beats;
-    setEditorBarIndex(0);
-    setSelectingBars(false);
-    setSelectedBarIndexes([]);
-    setSelectedRhythmId("");
-    setRhythmName("");
+    const current = settingsRef.current;
+    const index = Math.min(editorBarIndex, current.bars.length - 1);
+    const bar = current.bars[index];
     applyQuickRhythm({
-      beatUnit: 4,
-      bars: [{ beats: applyBeatPattern(presetBeats, option.steps, presetBeats.length) }],
-      loopBar: null,
+      bars: current.bars.map((candidate, barIndex) =>
+        barIndex === index
+          ? { beats: applyBeatPattern(bar.beats, option.steps, bar.beats.length) }
+          : candidate,
+      ),
       quickPatternId: option.id,
     });
   };
@@ -2213,7 +2205,6 @@ export default function App() {
     (index) => index < settings.bars.length - 1 && !activeBarIndexSet.has(index + 1),
   );
   const quickPattern = settings.quickPatternId;
-  const quickPatternLocked = Boolean(quickPattern);
   const quickHasOffbeats = hasOffbeatSteps(settings.bars);
   const matrixHeight =
     Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
@@ -2505,7 +2496,7 @@ export default function App() {
 
           <div className="setting-block quick-composer">
             <div className="quick-group">
-              <span className="quick-caption">常用预设</span>
+              <span className="quick-caption">常用细分 · 应用到当前小节</span>
               <div className="rhythm-preset-grid" role="group" aria-label="常用节奏预设">
                 {QUICK_PATTERNS.map((option) => (
                   <button
@@ -2522,26 +2513,23 @@ export default function App() {
                 ))}
               </div>
               <button
-                className={`quick-toggle ${quickPatternLocked ? "" : "is-active"}`}
+                className={`quick-toggle ${quickPattern ? "" : "is-active"}`}
                 type="button"
                 onClick={() => updateSettings({ quickPatternId: null })}
-                aria-pressed={!quickPatternLocked}
+                aria-pressed={!quickPattern}
               >
-                自定义拍号与细分
+                自由细分（不采用预设）
               </button>
             </div>
 
-            <div className={`quick-group ${quickPatternLocked ? "is-locked" : ""}`}>
-              <span className="quick-caption">
-                {quickPatternLocked ? "拍号由当前预设锁定" : "自定义拍号 · 当前小节"}
-              </span>
+            <div className="quick-group">
+              <span className="quick-caption">当前小节拍号</span>
               <div className="meter-wheels" role="group" aria-label="当前小节拍号">
                 <label>
                   <span className="sr-only">当前小节拍数</span>
                   <select
                     value={editorBar.beats.length}
                     onChange={(event) => changeQuickMeter(Number(event.target.value))}
-                    disabled={quickPatternLocked}
                   >
                     {Array.from({ length: MAX_BEATS }, (_, index) => index + 1).map((beats) => (
                       <option key={beats} value={beats}>{beats}</option>
@@ -2554,7 +2542,6 @@ export default function App() {
                   <select
                     value={settings.beatUnit}
                     onChange={(event) => updateSettings({ beatUnit: Number(event.target.value) })}
-                    disabled={quickPatternLocked}
                   >
                     {BEAT_UNITS.map((unit) => (
                       <option key={unit} value={unit}>{unit}</option>
@@ -2747,9 +2734,7 @@ export default function App() {
             <div className="advanced-section-heading">
               <span>
                 <strong>节奏编辑</strong>
-                <small>
-                  {quickPatternLocked ? "先选择自定义，再调整拍号与细分" : "增减拍数、细分与重音"}
-                </small>
+                <small>增减拍数、细分与重音</small>
               </span>
             </div>
             <div className="rhythm-toolbar">
@@ -2912,7 +2897,7 @@ export default function App() {
                   className="matrix-control beat-control"
                   type="button"
                   onClick={() => resizeBar(-1)}
-                  disabled={quickPatternLocked || editorBar.beats.length === 1}
+                  disabled={editorBar.beats.length === 1}
                   aria-label="减少一拍"
                   title="减少一拍"
                 >
@@ -2930,7 +2915,7 @@ export default function App() {
                         className="matrix-control subdivision-control"
                         type="button"
                         onClick={() => resizeBeat(beatIndex, 1)}
-                        disabled={quickPatternLocked || beat.steps.length === MAX_SUBDIVISION}
+                        disabled={beat.steps.length === MAX_SUBDIVISION}
                         aria-label={`增加第 ${beatIndex + 1} 拍的细分`}
                         title="增加细分"
                       >
@@ -2974,7 +2959,7 @@ export default function App() {
                         className="matrix-control subdivision-control"
                         type="button"
                         onClick={() => resizeBeat(beatIndex, -1)}
-                        disabled={quickPatternLocked || beat.steps.length === 1}
+                        disabled={beat.steps.length === 1}
                         aria-label={`减少第 ${beatIndex + 1} 拍的细分`}
                         title="减少细分"
                       >
@@ -2989,7 +2974,7 @@ export default function App() {
                   className="matrix-control beat-control"
                   type="button"
                   onClick={() => resizeBar(1)}
-                  disabled={quickPatternLocked || editorBar.beats.length === MAX_BEATS}
+                  disabled={editorBar.beats.length === MAX_BEATS}
                   aria-label="复制上一拍"
                   title="复制上一拍"
                 >

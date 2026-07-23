@@ -202,11 +202,12 @@ test("tempo helpers keep practice input inside the supported range", () => {
   assert.equal(tempoName(120), "快板 · Allegro");
 });
 
-test("quick presets and custom rhythm structure are mutually exclusive", () => {
+test("quick subdivision selection yields to manual rhythm edits", () => {
   assert.equal(nextQuickPatternId("eighths", { bpm: 120 }), "eighths");
   assert.equal(nextQuickPatternId("eighths", { loopBar: [0, 0] }), "eighths");
   assert.equal(nextQuickPatternId("eighths", { bars: [] }), null);
   assert.equal(nextQuickPatternId("eighths", { beatUnit: 8 }), null);
+  assert.equal(nextQuickPatternId("eighths", { quickPatternId: null }), null);
   assert.equal(nextQuickPatternId("eighths", { bars: [], quickPatternId: "triplet" }), "triplet");
 });
 
