@@ -93,6 +93,14 @@ export function applyBeatPattern(beats, pattern, count = beats.length) {
   });
 }
 
+export function makeSingleBarRhythm(beats, pattern = [1]) {
+  const bar = makeBar(beats, 1);
+  return {
+    bars: [{ beats: applyBeatPattern(bar.beats, pattern, bar.beats.length) }],
+    loopBar: null,
+  };
+}
+
 export function cycleBeatState(beat) {
   const accented = beat.steps.includes(2);
   const steps = beat.steps.map((step) => (step === 2 ? 1 : step));
