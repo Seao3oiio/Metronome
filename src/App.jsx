@@ -5,10 +5,8 @@ import {
   ArrowRight,
   ClipboardPaste,
   Copy,
-  Download,
   Hand,
   ListChecks,
-  Mic,
   Minus,
   Pause,
   Play,
@@ -17,8 +15,6 @@ import {
   Redo2,
   RotateCcw,
   Save,
-  Share2,
-  Square,
   Trash2,
   Undo2,
   Volume2,
@@ -33,7 +29,6 @@ import {
   MAX_BEATS,
   MAX_SUBDIVISION,
   advanceMinuteDeadline,
-  analyzeRhythmRecording,
   bpmFromTaps,
   clampBpm,
   compileRhythm,
@@ -50,6 +45,7 @@ import {
   normalizeLoopRange,
   nextQuickPatternId,
   nextTrainingBpm,
+  playbackVisualMarkers,
   removeBarSelection,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
@@ -65,7 +61,6 @@ import {
 import { clonePracticeRhythm, PRACTICE_PRESET_WEEKS } from "./practicePresets.js";
 
 const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
-const PRACTICE_HISTORY_KEY = "pulse-practice-history-v1";
 const LEGACY_SETTINGS_KEY = "pulse-settings";
 const SETTINGS_KEY = "pulse-advanced-settings-v1";
 const APPEARANCE_KEY = "kessoku-beat-appearance-v1";
@@ -137,8 +132,6 @@ const DEFAULT_SETTINGS = {
   gapClick: false,
   gapDifficulty: "medium",
   countIn: false,
-  rhythmAnalysis: false,
-  analysisLoop: false,
   distinguishOffbeats: true,
   volume: 100,
   muted: false,
@@ -160,8 +153,6 @@ function loadAppearance() {
 const STATUS_EN = {
   就绪: "Ready",
   已停止: "Stopped",
-  "正在分析…": "Analyzing…",
-  录音已取消: "Recording canceled",
   "保存的节奏已删除": "Saved rhythm deleted",
   "保存的节奏无效": "Saved rhythm is invalid",
   "切换节奏…": "Switching rhythm…",
@@ -174,11 +165,6 @@ const STATUS_EN = {
   已更新选择: "Selection updated",
   已退出多选: "Multi-select closed",
   "开启声音…": "Starting audio…",
-  当前浏览器不支持录音: "Recording is not supported",
-  当前练习没有需要弹奏的节奏点: "This practice has no rhythm notes",
-  "录音中 · 循环": "Recording · Looping",
-  录音中: "Recording",
-  录音已导出: "Recording exported",
   "最多保存 50 个节奏": "Up to 50 rhythms can be saved",
   本地保存失败: "Local save failed",
   点击恢复: "Tap to resume",
@@ -192,13 +178,8 @@ const STATUS_EN = {
   节奏编码已复制: "Rhythm code copied",
   "设置已更新 · 将从头开始": "Updated · restarting from the beginning",
   重新开始: "Restarting",
-  准备录音: "Preparing to record",
-  需要麦克风权限才能录音: "Microphone permission is required",
-  无法开始录音: "Unable to start recording",
-  请先完成录音: "Finish the recording first",
   请再次点击: "Tap again",
   请手动复制编码: "Copy the code manually",
-  "请求麦克风权限…": "Requesting microphone access…",
   运行中: "Playing",
   "预备 1 小节": "Count-in · 1 bar",
   循环全部小节: "Looping all bars",
@@ -212,13 +193,7 @@ function localizeStatus(status, isEnglish) {
   if (!isEnglish) return status;
   if (STATUS_EN[status]) return STATUS_EN[status];
 
-  let match = status.match(/^分析完成 · 稳定率 (\d+)%$/);
-  if (match) return `Analysis complete · Stable rate ${match[1]}%`;
-
-  match = status.match(/^分析失败：(.+)$/);
-  if (match) return `Analysis failed: ${match[1]}`;
-
-  match = status.match(/^(\d+) 个小节已删除$/);
+  let match = status.match(/^(\d+) 个小节已删除$/);
   if (match) return `${match[1]} ${match[1] === "1" ? "bar" : "bars"} deleted`;
 
   match = status.match(/^已选择 (\d+) 个小节$/);
@@ -292,8 +267,6 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
       trainer: Boolean(saved.trainer),
       gapClick: Boolean(saved.gapClick),
       countIn: Boolean(saved.countIn),
-      rhythmAnalysis: Boolean(saved.rhythmAnalysis),
-      analysisLoop: Boolean(saved.analysisLoop),
       distinguishOffbeats: saved.distinguishOffbeats !== false,
       gapDifficulty: GAP_DIFFICULTIES.some(({ value }) => value === saved.gapDifficulty)
         ? saved.gapDifficulty
@@ -329,243 +302,6 @@ function loadRhythmLibrary() {
   } catch {
     return [];
   }
-}
-
-function practiceKey({ beatUnit, bars, loopBar }) {
-  return JSON.stringify([beatUnit, bars, loopBar]);
-}
-
-function loadPracticeHistory() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(PRACTICE_HISTORY_KEY));
-    if (!Array.isArray(saved)) return [];
-    return saved
-      .filter(
-        (item) =>
-          typeof item?.key === "string" &&
-          Number.isFinite(item?.at) &&
-          Number.isFinite(item?.bpm) &&
-          Number.isFinite(item?.stableRate) &&
-          Number.isFinite(item?.meanAbsMs),
-      )
-      .slice(-200);
-  } catch {
-    return [];
-  }
-}
-
-function TimingThumbnail({ analysis, isEnglish }) {
-  return (
-    <svg
-      className="timing-thumbnail"
-      viewBox="0 0 120 44"
-      role="img"
-      aria-label={isEnglish
-        ? "Recording waveform and timing-deviation overview"
-        : "录音波形和节奏偏差缩略图"}
-      preserveAspectRatio="none"
-    >
-      <line className="waveform-axis" x1="0" y1="22" x2="120" y2="22" />
-      {analysis.peaks.map((peak, index) => (
-        <line
-          className="waveform-peak"
-          key={index}
-          x1={index + 0.5}
-          x2={index + 0.5}
-          y1={22 - peak * 15}
-          y2={22 + peak * 15}
-        />
-      ))}
-      {analysis.markers.map((marker, index) => (
-        <line
-          className={`timing-marker is-${marker.kind}`}
-          key={`${marker.kind}-${index}`}
-          x1={marker.position * 120}
-          x2={marker.position * 120}
-          y1="3"
-          y2="41"
-        />
-      ))}
-    </svg>
-  );
-}
-
-function TimingBreakdown({ analysis, isEnglish }) {
-  const range = Math.max(100, analysis.toleranceMs * 3);
-  return (
-    <div className="bar-timing-panel">
-      <div className="bar-timing-title">
-        <strong>{isEnglish ? "Beat-by-beat reference" : "逐拍基准"}</strong>
-        <span>{isEnglish ? "Early ← 0ms → Late" : "快 ← 0ms → 慢"}</span>
-      </div>
-      <div className="bar-timing-list">
-        {analysis.timingBars.map((bar) => {
-          const count = (kind) => bar.hits.filter((hit) => hit.kind === kind).length;
-          return (
-            <div className="bar-timing-group" key={bar.number}>
-              <header>
-                <strong>{isEnglish ? `Bar ${bar.number}` : `第 ${bar.number} 小节`}</strong>
-                <span>
-                  {isEnglish
-                    ? `On time ${count("steady")} · Early ${count("early")} · Late ${count("late")} · Missed ${count("missed")}`
-                    : `准 ${count("steady")} · 快 ${count("early")} · 慢 ${count("late")} · 漏 ${count("missed")}`}
-                </span>
-              </header>
-              <div className="beat-timing-grid">
-                {bar.hits.map((hit) => {
-                  const label = isEnglish
-                    ? hit.steps === 1
-                      ? `Beat ${hit.beat}`
-                      : `Beat ${hit.beat} · ${hit.step}/${hit.steps}`
-                    : hit.steps === 1
-                      ? `第 ${hit.beat} 拍`
-                      : `${hit.beat} 拍 · ${hit.step}/${hit.steps}`;
-                  const rounded = Math.round(hit.deviationMs ?? 0);
-                  const result = hit.kind === "missed"
-                    ? isEnglish ? "Missed" : "漏弹"
-                    : hit.kind === "early"
-                      ? `${isEnglish ? "Early" : "快"} ${Math.abs(rounded)}ms`
-                      : hit.kind === "late"
-                        ? `${isEnglish ? "Late" : "慢"} ${Math.abs(rounded)}ms`
-                        : `${rounded > 0 ? "+" : ""}${rounded}ms`;
-                  const position = hit.kind === "missed"
-                    ? 50
-                    : Math.min(94, Math.max(6, 50 + ((hit.deviationMs ?? 0) / range) * 44));
-                  return (
-                    <div
-                      className={`beat-timing is-${hit.kind}`}
-                      key={`${hit.beat}-${hit.step}`}
-                      role="group"
-                      aria-label={`${label}${isEnglish ? ", " : "，"}${result}`}
-                    >
-                      <div className="beat-timing-label">
-                        <span>{label}</span>
-                        <strong>{result}</strong>
-                      </div>
-                      <div className="beat-timing-track" aria-hidden="true">
-                        <i style={{ "--timing-position": `${position}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ProgressTrend({ history, isEnglish }) {
-  if (history.length < 2) return null;
-  const values = history.slice(-8);
-  const points = values
-    .map((item, index) => {
-      const x = values.length === 1 ? 50 : (index / (values.length - 1)) * 100;
-      const y = 28 - (item.stableRate / 100) * 24;
-      return `${x},${y}`;
-    })
-    .join(" ");
-  return (
-    <div className="progress-trend">
-      <span>
-        {isEnglish ? `Stable rate · last ${values.length} sessions` : `最近 ${values.length} 次稳定率`}
-      </span>
-      <svg
-        viewBox="0 0 100 32"
-        role="img"
-        aria-label={isEnglish ? "Historical stable-rate trend" : "历史稳定率趋势"}
-      >
-        <polyline points={points} />
-        {values.map((item, index) => (
-          <circle
-            key={item.at}
-            cx={values.length === 1 ? 50 : (index / (values.length - 1)) * 100}
-            cy={28 - (item.stableRate / 100) * 24}
-            r="2"
-          />
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-function HistoryComparison({ current, history, isEnglish }) {
-  const currentIndex = current
-    ? history.findIndex(({ at }) => at === current.at)
-    : history.length - 1;
-  const latest = currentIndex >= 0 ? history[currentIndex] : current ?? history.at(-1);
-  const previous = currentIndex > 0
-    ? history[currentIndex - 1]
-    : currentIndex < 0
-      ? history.at(-1)
-      : null;
-  const stableDelta = previous && latest
-    ? Math.round(latest.stableRate - previous.stableRate)
-    : null;
-  const errorDelta = previous && latest
-    ? Math.round(latest.meanAbsMs - previous.meanAbsMs)
-    : null;
-
-  return (
-    <div className="history-comparison">
-      <div className="history-comparison-title">
-        <strong>{isEnglish ? "History comparison" : "历史对比"}</strong>
-        <span>
-          {isEnglish
-            ? `Same rhythm · last ${history.length} sessions`
-            : `同一节奏 · 最近 ${history.length} 次`}
-        </span>
-      </div>
-      {previous && latest ? (
-        <div className="history-deltas">
-          <span>
-            <small>{isEnglish ? "Stable rate" : "稳定率"}</small>
-            <strong>{previous.stableRate}% → {latest.stableRate}%</strong>
-            <em className={stableDelta >= 0 ? "is-better" : "is-worse"}>
-              {stableDelta > 0 ? "+" : ""}{stableDelta}%
-            </em>
-          </span>
-          <span>
-            <small>{isEnglish ? "Mean error" : "平均误差"}</small>
-            <strong>{Math.round(previous.meanAbsMs)}ms → {Math.round(latest.meanAbsMs)}ms</strong>
-            <em className={errorDelta <= 0 ? "is-better" : "is-worse"}>
-              {errorDelta > 0 ? "+" : ""}{errorDelta}ms
-            </em>
-          </span>
-        </div>
-      ) : (
-        <p>
-          {isEnglish
-            ? history.length
-              ? "This result is saved. Practice the same rhythm once more to see the change."
-              : "Results are saved after your first practice; changes appear from the second session."
-            : history.length
-              ? "已记录本次成绩；再练一次相同节奏即可看到变化。"
-              : "完成一次练习后开始记录，同一节奏第二次起显示变化。"}
-        </p>
-      )}
-      <ProgressTrend history={history} isEnglish={isEnglish} />
-      {history.length > 0 && (
-        <ol
-          className="practice-history"
-          aria-label={isEnglish ? "Recent sessions for the same rhythm" : "同一节奏最近练习记录"}
-        >
-          {history.slice(-4).reverse().map((item) => (
-            <li key={item.at}>
-              <time dateTime={new Date(item.at).toISOString()}>
-                {new Date(item.at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
-              </time>
-              <span>{item.bpm} BPM</span>
-              <strong>{item.stableRate}%</strong>
-              <span>{Math.round(item.meanAbsMs)}ms</span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
 }
 
 function cloneBeat(beat) {
@@ -694,7 +430,7 @@ function RhythmPatternGlyph({ steps, beatUnit }) {
   );
 }
 
-function RhythmDot({ className, label, title, onPress, onHold, style }) {
+function RhythmDot({ className, label, title, onPress, onHold, style, visualKey }) {
   const timerRef = useRef(null);
   const heldRef = useRef(false);
   const pressedRef = useRef(false);
@@ -737,6 +473,7 @@ function RhythmDot({ className, label, title, onPress, onHold, style }) {
       className={className}
       type="button"
       style={style}
+      data-visual-editor-step={visualKey}
       aria-label={label}
       title={title}
       onPointerDown={startHold}
@@ -915,14 +652,6 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const [status, setStatusValue] = useState("就绪");
-  const [visual, setVisual] = useState({
-    bar: 0,
-    beat: 0,
-    sub: 0,
-    pulse: 0,
-    hit: false,
-    gap: false,
-  });
   const [editorBarIndex, setEditorBarIndex] = useState(() => loopStart(settings.loopBar));
   const [selectingBars, setSelectingBars] = useState(false);
   const [selectedBarIndexes, setSelectedBarIndexes] = useState([]);
@@ -933,20 +662,11 @@ export default function App() {
     setToast({ id: Date.now(), message });
   }, []);
   const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showRhythmCode, setShowRhythmCode] = useState(false);
   const [rhythmCode, setRhythmCode] = useState("");
   const [savedRhythms, setSavedRhythms] = useState(loadRhythmLibrary);
-  const [practiceHistory, setPracticeHistory] = useState(loadPracticeHistory);
-  const [analysis, setAnalysis] = useState(null);
-  const [recordingAudio, setRecordingAudio] = useState(null);
-  const [recording, setRecording] = useState(false);
   const [selectedRhythmId, setSelectedRhythmId] = useState("");
   const [rhythmName, setRhythmName] = useState("");
-  const [installed, setInstalled] = useState(
-    () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
-  );
   const [appearance, setAppearance] = useState(loadAppearance);
   const isEnglish = appearance.locale === "en";
   const ui = useCallback(
@@ -972,10 +692,45 @@ export default function App() {
   const tapsRef = useRef([]);
   const generationRef = useRef(0);
   const audioRef = useRef(null);
-  const recordingRef = useRef(null);
-  const installDialogRef = useRef(null);
   const rhythmDialogRef = useRef(null);
+  const appShellRef = useRef(null);
+  const editorBarIndexRef = useRef(editorBarIndex);
+  const visualRef = useRef({
+    bar: 0,
+    beat: 0,
+    sub: 0,
+    pulse: 0,
+    hit: false,
+    gap: false,
+  });
+  const visualElementsRef = useRef([]);
   const isIOS = isIOSDevice();
+
+  const paintVisual = useCallback((visual = visualRef.current) => {
+    visualElementsRef.current.forEach(({ element, className }) => {
+      element.classList.remove(className);
+    });
+    visualElementsRef.current = [];
+    if (!playingRef.current || visual.gap || !appShellRef.current) return;
+
+    playbackVisualMarkers(visual, editorBarIndexRef.current).forEach((marker) => {
+      const element = appShellRef.current.querySelector(
+        `[data-visual-${marker.target}="${marker.value}"]`,
+      );
+      if (!element) return;
+      element.classList.add(marker.className);
+      visualElementsRef.current.push({ element, className: marker.className });
+    });
+  }, []);
+
+  const setVisual = useCallback((next) => {
+    visualRef.current = next;
+    if (playingRef.current && editorBarIndexRef.current !== next.bar) {
+      editorBarIndexRef.current = next.bar;
+      setEditorBarIndex(next.bar);
+    }
+    paintVisual(next);
+  }, [paintVisual]);
 
   const replaceSettings = useCallback((next) => {
     settingsRef.current = next;
@@ -1006,10 +761,6 @@ export default function App() {
   }, []);
 
   const updateSettings = useCallback((patch, recordHistory = true) => {
-    if (recordingRef.current) {
-      setStatus("请先完成录音");
-      return;
-    }
     const current = settingsRef.current;
     const quickPatternId = nextQuickPatternId(current.quickPatternId, patch);
     const rhythmChanged =
@@ -1046,9 +797,6 @@ export default function App() {
       setAudioSession("auto");
       setStatus("设置已更新 · 将从头开始");
     }
-    if (rhythmChanged || "bpm" in patch) {
-      setAnalysis(null);
-    }
     settingsRef.current = next;
     setSettings(next);
     if (audioRef.current?.media && pausedRef.current) {
@@ -1071,22 +819,6 @@ export default function App() {
 
   const stop = useCallback(
     (message = "已停止") => {
-      const recordingSession = recordingRef.current;
-      if (recordingSession && !recordingSession.stopping) {
-        if (recordingSession.loop && recordingSession.rhythmStartedAt) {
-          recordingSession.duration = Math.max(
-            0.1,
-            performance.now() / 1000 - recordingSession.rhythmStartedAt,
-          );
-        }
-        recordingSession.stopping = true;
-        clearTimeout(recordingSession.timer);
-        recordingRef.current = null;
-        setRecording(false);
-        if (recordingSession.recorder.state !== "inactive") recordingSession.recorder.stop();
-        recordingSession.stream.getTracks().forEach((track) => track.stop());
-        message = recordingSession.rhythmStartedAt ? "正在分析…" : "录音已取消";
-      }
       generationRef.current += 1;
       playbackIntentRef.current = false;
       playingRef.current = false;
@@ -1103,7 +835,7 @@ export default function App() {
   );
 
   const pausePlayback = useCallback(() => {
-    if (!playingRef.current || recordingRef.current || !audioRef.current) return;
+    if (!playingRef.current || !audioRef.current) return;
     const audio = audioRef.current;
     playingRef.current = false;
     pausedRef.current = true;
@@ -1203,7 +935,7 @@ export default function App() {
     setStatus(direction === "undo" ? "已撤销" : "已重做");
   };
 
-  const start = useCallback(async (preserveTempo = false, practice = null) => {
+  const start = useCallback(async (preserveTempo = false) => {
     if (startingRef.current || playingRef.current) return;
     startingRef.current = true;
     pausedRef.current = false;
@@ -1304,26 +1036,16 @@ export default function App() {
           mediaAudio.countInResolve = null;
           mediaAudio.countingIn = false;
           mediaAudio.media.currentTime = 0;
-          mediaAudio.media.loop = practice?.loop !== false;
+          mediaAudio.media.loop = true;
           mediaAudio.media.volume = mediaAudio.targetVolume;
           if (!pausedRef.current && mediaAudio.media.paused) await mediaAudio.media.play();
         }
         mediaAudio.startedAt = performance.now() / 1000;
-        if (!pausedRef.current) practice?.onStart?.();
-
         barsRef.current = 0;
         minuteDeadlineRef.current = 60;
         playingRef.current = !pausedRef.current;
         setPlaying(!pausedRef.current);
-        setStatus(
-          pausedRef.current
-            ? "已暂停"
-            : practice?.loop
-              ? "录音中 · 循环"
-              : practice
-                ? "录音中"
-                : "运行中",
-        );
+        setStatus(pausedRef.current ? "已暂停" : "运行中");
 
         const draw = () => {
           if (generationRef.current !== run || !playingRef.current) return;
@@ -1525,7 +1247,7 @@ export default function App() {
         if (enteredBar) barsRef.current += 1;
       }, plan.events.map((event) => [Tone.Ticks(event.ticks), event]));
       part.loopEnd = Tone.Ticks(plan.totalTicks);
-      part.loop = practice?.loop !== false;
+      part.loop = true;
       part.start(Tone.Ticks(countInTicks));
 
       const toneAudio = {
@@ -1535,13 +1257,12 @@ export default function App() {
         output,
         countingIn: Boolean(countInTicks),
       };
-      if (countInTicks || practice) {
+      if (countInTicks) {
         transport.scheduleOnce((time) => {
           toneAudio.countingIn = false;
           Tone.getDraw().schedule(() => {
             if (generationRef.current !== run || !playingRef.current) return;
-            setStatus(practice?.loop ? "录音中 · 循环" : practice ? "录音中" : "运行中");
-            practice?.onStart?.();
+            setStatus("运行中");
           }, time);
         }, Tone.Ticks(countInTicks));
       }
@@ -1590,10 +1311,6 @@ export default function App() {
   );
 
   const togglePlayback = useCallback(async () => {
-    if (recordingRef.current) {
-      stop();
-      return;
-    }
     if (playingRef.current) {
       pausePlayback();
       return;
@@ -1611,153 +1328,10 @@ export default function App() {
   }, [pausePlayback, refreshPlayback, resumePlayback, start, stop]);
 
   const restartPlayback = useCallback(async () => {
-    if (recordingRef.current) return;
     stop("重新开始");
     playbackIntentRef.current = true;
     await start();
   }, [start, stop]);
-
-  const finishPracticeRecording = useCallback(() => {
-    if (recordingRef.current) stop();
-  }, [stop]);
-
-  const beginPracticeRecording = useCallback(async () => {
-    if (
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof window.MediaRecorder !== "function"
-    ) {
-      setStatus("当前浏览器不支持录音");
-      return;
-    }
-
-    if (playbackIntentRef.current) stop("准备录音");
-    const request = ++generationRef.current;
-    setAnalysis(null);
-    setRecordingAudio(null);
-    const snapshot = {
-      bpm: settingsRef.current.bpm,
-      beatUnit: settingsRef.current.beatUnit,
-      bars: settingsRef.current.bars,
-      loopBar: settingsRef.current.loopBar,
-    };
-    const plan = compileRhythm(snapshot.bars, snapshot.loopBar, 1);
-    if (
-      !plan.events.some(
-        ({ bar, beat, sub }) => snapshot.bars[bar].beats[beat].steps[sub] > 0,
-      )
-    ) {
-      setStatus("当前练习没有需要弹奏的节奏点");
-      return;
-    }
-    const cycleDuration = (plan.totalTicks * 60) / snapshot.bpm;
-    const loop = settingsRef.current.analysisLoop;
-    const duration = loop ? 120 : Math.min(120, cycleDuration);
-    setStatus("请求麦克风权限…");
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      });
-      if (request !== generationRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      const [audioTrack] = stream.getAudioTracks();
-      if (audioTrack && "contentHint" in audioTrack) audioTrack.contentHint = "music";
-      const recorder = new window.MediaRecorder(stream);
-      const session = {
-        cancelled: false,
-        chunks: [],
-        duration,
-        key: practiceKey(snapshot),
-        loop,
-        recorder,
-        recorderStartedAt: performance.now() / 1000,
-        rhythmStartedAt: null,
-        settings: snapshot,
-        stopping: false,
-        stream,
-        timer: null,
-      };
-
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data.size) session.chunks.push(event.data);
-      });
-      recorder.addEventListener("stop", async () => {
-        if (
-          session.cancelled ||
-          !session.rhythmStartedAt ||
-          !session.chunks.length
-        ) return;
-        let context;
-        try {
-          const audioBlob = new Blob(session.chunks, {
-            type: recorder.mimeType || session.chunks[0]?.type,
-          });
-          const recordedAt = Date.now();
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          context = new AudioContextClass();
-          const buffer = await context.decodeAudioData(
-            await audioBlob.arrayBuffer(),
-          );
-          const samples = new Float32Array(buffer.length);
-          for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
-            const data = buffer.getChannelData(channel);
-            for (let index = 0; index < data.length; index += 1) {
-              samples[index] += data[index] / buffer.numberOfChannels;
-            }
-          }
-          const result = analyzeRhythmRecording(samples, buffer.sampleRate, {
-            ...session.settings,
-            rhythmStart: session.rhythmStartedAt - session.recorderStartedAt,
-            duration: session.duration,
-          });
-          if (session.cancelled) return;
-          const record = {
-            actualBpm: result.actualBpm,
-            at: recordedAt,
-            bpm: session.settings.bpm,
-            key: session.key,
-            meanAbsMs: result.meanAbsMs,
-            stableRate: result.stableRate,
-          };
-          setRecordingAudio({ at: recordedAt, blob: audioBlob });
-          setAnalysis({ ...result, key: session.key, record });
-          setPracticeHistory((current) => [...current, record].slice(-200));
-          setStatus(`分析完成 · 稳定率 ${result.stableRate}%`);
-        } catch (error) {
-          if (session.cancelled) return;
-          setStatus(`分析失败：${error.message}`);
-        } finally {
-          await context?.close();
-        }
-      });
-
-      recorder.start();
-      recordingRef.current = session;
-      setRecording(true);
-      setStatus("预备 1 小节");
-      playbackIntentRef.current = true;
-      await start(true, {
-        loop,
-        onStart: () => {
-          if (session.stopping) return;
-          session.rhythmStartedAt = performance.now() / 1000;
-          session.timer = setTimeout(
-            finishPracticeRecording,
-            (loop ? 120 : duration) * 1000 + (loop ? 0 : 120),
-          );
-        },
-      });
-      if (!playingRef.current && !session.stopping) finishPracticeRecording();
-    } catch (error) {
-      stream?.getTracks().forEach((track) => track.stop());
-      if (request !== generationRef.current) return;
-      recordingRef.current = null;
-      setRecording(false);
-      setStatus(error.name === "NotAllowedError" ? "需要麦克风权限才能录音" : "无法开始录音");
-    }
-  }, [finishPracticeRecording, start, stop]);
 
   const tapTempo = useCallback(() => {
     const now = performance.now();
@@ -1807,16 +1381,9 @@ export default function App() {
   }, [appearance, isEnglish]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(PRACTICE_HISTORY_KEY, JSON.stringify(practiceHistory));
-    } catch {
-      // Practice analysis still works when private browsing denies storage.
-    }
-  }, [practiceHistory]);
-
-  useEffect(() => {
-    if (playing) setEditorBarIndex(visual.bar);
-  }, [playing, visual.bar]);
+    editorBarIndexRef.current = editorBarIndex;
+    paintVisual();
+  });
 
   useEffect(() => {
     audioRef.current?.output?.gain.rampTo(
@@ -1870,14 +1437,6 @@ export default function App() {
 
   useEffect(
     () => () => {
-      const recordingSession = recordingRef.current;
-      if (recordingSession) {
-        recordingSession.cancelled = true;
-        clearTimeout(recordingSession.timer);
-        if (recordingSession.recorder.state !== "inactive") recordingSession.recorder.stop();
-        recordingSession.stream.getTracks().forEach((track) => track.stop());
-        recordingRef.current = null;
-      }
       generationRef.current += 1;
       playbackIntentRef.current = false;
       playingRef.current = false;
@@ -1887,32 +1446,6 @@ export default function App() {
     },
     [disposeAudio],
   );
-
-  useEffect(() => {
-    const captureInstallPrompt = (event) => {
-      event.preventDefault();
-      setInstallPrompt(event);
-    };
-    const markInstalled = () => {
-      setInstalled(true);
-      setInstallPrompt(null);
-      setShowInstallHelp(false);
-    };
-
-    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
-    window.addEventListener("appinstalled", markInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
-      window.removeEventListener("appinstalled", markInstalled);
-    };
-  }, []);
-
-  useEffect(() => {
-    const dialog = installDialogRef.current;
-    if (!dialog) return;
-    if (showInstallHelp && !dialog.open) dialog.showModal();
-    else if (!showInstallHelp && dialog.open) dialog.close();
-  }, [showInstallHelp]);
 
   useEffect(() => {
     const dialog = rhythmDialogRef.current;
@@ -2411,28 +1944,6 @@ export default function App() {
     Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
       48 +
     44;
-  const visibleHistory = practiceHistory
-    .filter(({ key }) => key === (analysis?.key ?? practiceKey(settings)))
-    .slice(-8);
-  const exportPracticeAudio = () => {
-    if (!recordingAudio) return;
-    const extension = recordingAudio.blob.type.includes("mp4")
-      ? "m4a"
-      : recordingAudio.blob.type.includes("ogg")
-        ? "ogg"
-        : recordingAudio.blob.type.includes("wav")
-          ? "wav"
-          : "webm";
-    const url = URL.createObjectURL(recordingAudio.blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `kessoku-beat-${new Date(recordingAudio.at).toISOString().slice(0, 19).replaceAll(":", "-")}.${extension}`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setStatus("录音已导出");
-  };
 
   useEffect(() => {
     const handleEditorShortcut = (event) => {
@@ -2475,34 +1986,18 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleEditorShortcut);
   });
 
-  const installApp = async () => {
-    if (isIOS || !installPrompt) {
-      setShowInstallHelp(true);
-      return;
-    }
-
-    try {
-      await installPrompt.prompt();
-      const choice = await installPrompt.userChoice;
-      setInstallPrompt(null);
-      if (choice.outcome === "accepted") setInstalled(true);
-    } catch {
-      setInstallPrompt(null);
-      setShowInstallHelp(true);
-    }
-  };
-
   const playbackActionLabel = playing
     ? ui("暂停", "Pause")
     : paused
       ? ui("继续", "Resume")
       : ui("开始", "Start");
   const displayStatus = localizeStatus(status, isEnglish);
-  const themeArtUrl = `${import.meta.env.BASE_URL}themes/hitori.png`;
+  const themeBannerUrl = `${import.meta.env.BASE_URL}kessoku-beat-hitori-social.png`;
 
   return (
     <div
-      className={`app-shell ${playing ? "is-playing" : ""} ${recording ? "is-recording" : ""}`}
+      ref={appShellRef}
+      className={`app-shell ${playing ? "is-playing" : ""}`}
       data-character={appearance.character}
       data-visual-style={appearance.style}
       data-locale={appearance.locale}
@@ -2577,14 +2072,10 @@ export default function App() {
             <button
               className="topbar-stop"
               type="button"
-              onClick={recording ? finishPracticeRecording : playing ? pausePlayback : resumePlayback}
+              onClick={playing ? pausePlayback : resumePlayback}
             >
-              {recording
-                ? <Square fill="currentColor" />
-                : playing
-                  ? <Pause fill="currentColor" />
-                  : <Play fill="currentColor" />}
-              {recording ? ui("结束录音", "End recording") : playbackActionLabel}
+              {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
+              {playbackActionLabel}
             </button>
           )}
         </div>
@@ -2593,21 +2084,9 @@ export default function App() {
       <main id="main" className="workspace">
         <aside className="card settings-card advanced-rhythm-card" aria-labelledby="settings-heading">
           <section className="theme-stage" aria-label={`${selectedTheme.label} テーマ`}>
-            <div className="stage-color-blocks" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-              <i />
-            </div>
-            <figure className="stage-portrait">
-              <img src={themeArtUrl} alt={selectedTheme.label} />
+            <figure className="stage-banner">
+              <img src={themeBannerUrl} alt={`KESSOKU BEAT · ${selectedTheme.label}`} />
             </figure>
-            <figure className="stage-detail" aria-hidden="true">
-              <img src={themeArtUrl} alt="" />
-            </figure>
-            <div className="stage-silhouette" aria-hidden="true">
-              <img src={themeArtUrl} alt="" />
-            </div>
             <div className="stage-stats">
               <span>
                 <strong>{settings.bpm}</strong>
@@ -2620,10 +2099,8 @@ export default function App() {
               <span className="stage-beat-lights" aria-label={ui("节拍指示", "Beat indicators")}>
                 {Array.from({ length: editorBar.beats.length }, (_, index) => (
                   <i
-                    className={
-                      playing && !visual.gap && visual.beat === index ? "is-active" : ""
-                    }
                     key={index}
+                    data-visual-stage-beat={index}
                     aria-hidden="true"
                   />
                 ))}
@@ -2634,90 +2111,6 @@ export default function App() {
           <div className="control-stack">
           <div className="settings-heading">
             <h2 id="settings-heading">{ui("节奏", "Rhythm")}</h2>
-            <div className="rhythm-share-actions">
-              <button
-                type="button"
-                onClick={exportRhythm}
-                aria-label={ui("复制节奏编码", "Copy rhythm code")}
-              >
-                <Copy />
-                <span>{ui("复制", "Copy")}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRhythmCode("");
-                  setShowRhythmCode(true);
-                }}
-                aria-label={ui("导入节奏编码", "Import rhythm code")}
-              >
-                <ClipboardPaste />
-                <span>{ui("导入", "Import")}</span>
-              </button>
-              {!installed && (
-                <button
-                  type="button"
-                  onClick={installApp}
-                  aria-label={ui("添加到桌面", "Install app")}
-                >
-                  <Download />
-                  <span>{ui("安装", "Install")}</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="rhythm-library">
-            <select
-              value={selectedRhythmId}
-              onChange={(event) => switchLocalRhythm(event.target.value)}
-              aria-label={ui("切换节奏预设", "Choose rhythm preset")}
-            >
-              <option value="">{ui("新节奏", "New rhythm")}</option>
-              {PRACTICE_PRESET_WEEKS.map((week) => (
-                <optgroup key={week.id} label={`${ui("教程", "Tutorial")} / ${week.label}`}>
-                  {week.exercises.flatMap((exercise) =>
-                    exercise.presets.map((preset) => (
-                      <option key={preset.id} value={`${TUTORIAL_PREFIX}${preset.id}`}>
-                        {exercise.label}{exercise.presets.length > 1 ? ` / ${preset.label}` : ""}
-                      </option>
-                    )),
-                  )}
-                </optgroup>
-              ))}
-              {savedRhythms.length > 0 && (
-                <optgroup label={ui("我的预设", "My presets")}>
-                  {savedRhythms.map((saved) => (
-                    <option key={saved.id} value={saved.id}>{saved.name}</option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            <input
-              type="text"
-              value={rhythmName}
-              onChange={(event) => setRhythmName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") saveLocalRhythm();
-              }}
-              maxLength={40}
-              placeholder={rhythmDefaultName(settings)}
-              aria-label={ui("节奏名称，可留空自动命名", "Rhythm name, optional")}
-            />
-            <button type="button" onClick={saveLocalRhythm}>
-              <Save />
-              <span>{ui("保存", "Save")}</span>
-            </button>
-            <button
-              className="is-danger"
-              type="button"
-              onClick={deleteLocalRhythm}
-              disabled={!savedRhythms.some(({ id }) => id === selectedRhythmId)}
-              aria-label={ui("删除当前保存的节奏", "Delete saved rhythm")}
-              title={ui("删除当前保存的节奏", "Delete saved rhythm")}
-            >
-              <Trash2 />
-            </button>
           </div>
 
           <div className="advanced-transport">
@@ -2782,7 +2175,6 @@ export default function App() {
                 onClick={togglePlayback}
                 aria-label={playbackActionLabel}
                 aria-keyshortcuts="Space"
-                disabled={recording}
               >
                 {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
                 <span>{playbackActionLabel}</span>
@@ -2793,7 +2185,7 @@ export default function App() {
                 onClick={restartPlayback}
                 aria-label={ui("重新开始", "Restart")}
                 title={ui("重新开始", "Restart")}
-                disabled={recording || (!playing && !paused)}
+                disabled={!playing && !paused}
               >
                 <RotateCcw />
                 <span>{ui("重新开始", "Restart")}</span>
@@ -2805,97 +2197,150 @@ export default function App() {
               onClick={tapTempo}
               aria-label={ui("Tap 测速", "Tap tempo")}
               aria-keyshortcuts="T"
-              disabled={recording}
             >
               <Hand />
               <span>{ui("测速", "Tap")}</span>
             </button>
           </div>
 
-          <div className="setting-block quick-composer">
-            <div className="quick-group">
-              <span className="quick-caption">{ui("细分", "Subdivision")}</span>
-              <div
-                className="rhythm-preset-grid"
-                role="group"
-                aria-label={ui("细分", "Subdivision")}
+          <div className="quick-settings-row">
+            <div className="setting-block quick-composer">
+              <div className="quick-group">
+                <span className="quick-caption">{ui("细分", "Subdivision")}</span>
+                <div
+                  className="rhythm-preset-grid"
+                  role="group"
+                  aria-label={ui("细分", "Subdivision")}
+                >
+                  {QUICK_PATTERNS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={quickPattern === option.id ? "is-selected" : ""}
+                      aria-label={ui(option.label, {
+                        beat: "Quarter notes",
+                        eighths: "Eighth notes",
+                        offbeat: "Offbeats",
+                        triplet: "Triplets",
+                        "triplet-rest-first": "Triplets · first rest",
+                        "triplet-rest-middle": "Triplets · middle rest",
+                        "triplet-rest-last": "Triplets · last rest",
+                        sixteenths: "Sixteenth notes",
+                      }[option.id])}
+                      aria-pressed={quickPattern === option.id}
+                      title={ui(option.label, {
+                        beat: "Quarter notes",
+                        eighths: "Eighth notes",
+                        offbeat: "Offbeats",
+                        triplet: "Triplets",
+                        "triplet-rest-first": "Triplets · first rest",
+                        "triplet-rest-middle": "Triplets · middle rest",
+                        "triplet-rest-last": "Triplets · last rest",
+                        sixteenths: "Sixteenth notes",
+                      }[option.id])}
+                      onClick={() => changeQuickPattern(option)}
+                    >
+                      <RhythmPatternGlyph steps={option.steps} beatUnit={4} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="quick-group">
+                <span className="quick-caption">{ui("拍号", "Meter")}</span>
+                <div className="meter-wheels" role="group" aria-label={ui("拍号", "Meter")}>
+                  <label>
+                    <span className="sr-only">{ui("当前小节拍数", "Beats in current bar")}</span>
+                    <select
+                      value={editorBar.beats.length}
+                      onChange={(event) => changeQuickMeter(Number(event.target.value))}
+                    >
+                      {Array.from({ length: MAX_BEATS }, (_, index) => index + 1).map((beats) => (
+                        <option key={beats} value={beats}>{beats}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <span aria-hidden="true">/</span>
+                  <label>
+                    <span className="sr-only">{ui("拍号音符", "Beat unit")}</span>
+                    <select
+                      value={settings.beatUnit}
+                      onChange={(event) => changeQuickBeatUnit(Number(event.target.value))}
+                    >
+                      {BEAT_UNITS.map((unit) => (
+                        <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <button
+                className={
+                  settings.distinguishOffbeats && quickHasOffbeats
+                    ? "quick-toggle is-active"
+                    : "quick-toggle"
+                }
+                type="button"
+                onClick={() =>
+                  updateSettings({ distinguishOffbeats: !settings.distinguishOffbeats })}
+                aria-pressed={settings.distinguishOffbeats && quickHasOffbeats}
+                disabled={!quickHasOffbeats}
               >
-                {QUICK_PATTERNS.map((option) => (
+                {ui("正反拍音色区分", "Differentiate offbeat sound")}
+              </button>
+            </div>
+
+            <div className="setting-block audio-control-block">
+              <div className="setting-label audio-control-heading">
+                <span>{ui("声音", "Sound")}</span>
+                <small>{settings.muted ? ui("静音", "Muted") : `${settings.volume}%`}</small>
+              </div>
+              <div className="sound-grid" aria-label={ui("节拍音色", "Metronome sound")}>
+                {SOUNDS.map((sound) => (
                   <button
-                    key={option.id}
+                    key={sound.value}
                     type="button"
-                    className={quickPattern === option.id ? "is-selected" : ""}
-                    aria-label={ui(option.label, {
-                      beat: "Quarter notes",
-                      eighths: "Eighth notes",
-                      offbeat: "Offbeats",
-                      triplet: "Triplets",
-                      "triplet-rest-first": "Triplets · first rest",
-                      "triplet-rest-middle": "Triplets · middle rest",
-                      "triplet-rest-last": "Triplets · last rest",
-                      sixteenths: "Sixteenth notes",
-                    }[option.id])}
-                    aria-pressed={quickPattern === option.id}
-                    title={ui(option.label, {
-                      beat: "Quarter notes",
-                      eighths: "Eighth notes",
-                      offbeat: "Offbeats",
-                      triplet: "Triplets",
-                      "triplet-rest-first": "Triplets · first rest",
-                      "triplet-rest-middle": "Triplets · middle rest",
-                      "triplet-rest-last": "Triplets · last rest",
-                      sixteenths: "Sixteenth notes",
-                    }[option.id])}
-                    onClick={() => changeQuickPattern(option)}
+                    className={settings.sound === sound.value ? "is-selected" : ""}
+                    aria-pressed={settings.sound === sound.value}
+                    onClick={() => updateSettings({ sound: sound.value })}
                   >
-                    <RhythmPatternGlyph steps={option.steps} beatUnit={4} />
+                    <i className={`sound-mark sound-${sound.value}`} aria-hidden="true" />
+                    <span>
+                      {ui(sound.label, {
+                        click: "Crisp",
+                        wood: "Woodblock",
+                        drum: "Drum",
+                        soft: "Soft",
+                      }[sound.value])}
+                    </span>
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="quick-group">
-              <span className="quick-caption">{ui("拍号", "Meter")}</span>
-              <div className="meter-wheels" role="group" aria-label={ui("拍号", "Meter")}>
-                <label>
-                  <span className="sr-only">{ui("当前小节拍数", "Beats in current bar")}</span>
-                  <select
-                    value={editorBar.beats.length}
-                    onChange={(event) => changeQuickMeter(Number(event.target.value))}
-                  >
-                    {Array.from({ length: MAX_BEATS }, (_, index) => index + 1).map((beats) => (
-                      <option key={beats} value={beats}>{beats}</option>
-                    ))}
-                  </select>
-                </label>
-                <span aria-hidden="true">/</span>
-                <label>
-                  <span className="sr-only">{ui("拍号音符", "Beat unit")}</span>
-                  <select
-                    value={settings.beatUnit}
-                    onChange={(event) => changeQuickBeatUnit(Number(event.target.value))}
-                  >
-                    {BEAT_UNITS.map((unit) => (
-                      <option key={unit} value={unit}>{unit}</option>
-                    ))}
-                  </select>
-                </label>
+              <div className="volume-control">
+                <button
+                  className="volume-button"
+                  type="button"
+                  onClick={() => updateSettings({ muted: !settings.muted })}
+                  aria-label={
+                    settings.muted ? ui("取消静音", "Unmute") : ui("静音", "Mute")
+                  }
+                  aria-pressed={settings.muted}
+                >
+                  {settings.muted ? <VolumeX /> : <Volume2 />}
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={settings.volume}
+                  onChange={(event) =>
+                    updateSettings({ volume: Number(event.target.value), muted: false })}
+                  aria-label={ui("节拍音量", "Metronome volume")}
+                  style={{ "--range-progress": `${settings.volume}%` }}
+                />
               </div>
             </div>
-
-            <button
-              className={
-                settings.distinguishOffbeats && quickHasOffbeats
-                  ? "quick-toggle is-active"
-                  : "quick-toggle"
-              }
-              type="button"
-              onClick={() => updateSettings({ distinguishOffbeats: !settings.distinguishOffbeats })}
-              aria-pressed={settings.distinguishOffbeats && quickHasOffbeats}
-              disabled={!quickHasOffbeats}
-            >
-              {ui("正反拍音色区分", "Differentiate offbeat sound")}
-            </button>
           </div>
 
           <div
@@ -2904,7 +2349,16 @@ export default function App() {
             aria-label={ui("播放控制", "Playback controls")}
           >
             <button
-              className={settings.beatTrack ? "is-active" : ""}
+              className={`track-toggle track-count-in ${settings.countIn ? "is-active" : ""}`}
+              type="button"
+              onClick={() => updateSettings({ countIn: !settings.countIn })}
+              aria-pressed={settings.countIn}
+              title={ui("开始前预备一小节", "Count in for one bar before starting")}
+            >
+              <span>{ui("预备拍", "Count-in")}</span>
+            </button>
+            <button
+              className={`track-toggle track-beat ${settings.beatTrack ? "is-active" : ""}`}
               type="button"
               onClick={() => updateSettings({ beatTrack: !settings.beatTrack })}
               aria-pressed={settings.beatTrack}
@@ -2917,7 +2371,7 @@ export default function App() {
               <span>{ui("节拍", "Beat")}</span>
             </button>
             <button
-              className={settings.rhythmTrack ? "is-active" : ""}
+              className={`track-toggle track-rhythm ${settings.rhythmTrack ? "is-active" : ""}`}
               type="button"
               onClick={() => updateSettings({ rhythmTrack: !settings.rhythmTrack })}
               aria-pressed={settings.rhythmTrack}
@@ -2929,54 +2383,47 @@ export default function App() {
               <i className="rhythm-track-mark" aria-hidden="true" />
               <span>{ui("节奏", "Rhythm")}</span>
             </button>
-            <button
-              className={settings.countIn ? "is-active" : ""}
-              type="button"
-              onClick={() => updateSettings({ countIn: !settings.countIn })}
-              aria-pressed={settings.countIn}
-              title={ui("开始前预备一小节", "Count in for one bar before starting")}
-            >
-              <span>{ui("预备拍", "Count-in")}</span>
-            </button>
-            <button
-              className={settings.gapClick ? "is-active" : ""}
-              type="button"
-              onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
-              aria-pressed={settings.gapClick}
-              title={ui(
-                "时间轴继续，仅随机关闭声音和节拍动画",
-                "Keep the timeline running while randomly muting sound and beat animation",
-              )}
-            >
-              <VolumeX />
-              <span>{ui("随机空拍", "Random gaps")}</span>
-            </button>
-            <div
-              className="gap-levels"
-              role="group"
-              aria-label={ui("随机空拍难度", "Random gap difficulty")}
-            >
-              {GAP_DIFFICULTIES.map((option) => (
-                <button
-                  key={option.value}
-                  className={settings.gapDifficulty === option.value ? "is-selected" : ""}
-                  type="button"
-                  onClick={() => changeGapClick({ gapDifficulty: option.value })}
-                  disabled={!settings.gapClick}
-                  aria-pressed={settings.gapDifficulty === option.value}
-                  title={ui(option.title, {
-                    easy: "Sound for 3–5 bars, mute for 1 bar",
-                    medium: "Sound for 2–4 bars, mute for 1–2 bars",
-                    hard: "Sound for 1–3 bars, mute for 2–4 bars",
-                  }[option.value])}
-                >
-                  {ui(option.label, {
-                    easy: "Easy",
-                    medium: "Medium",
-                    hard: "Hard",
-                  }[option.value])}
-                </button>
-              ))}
+            <div className="gap-row">
+              <button
+                className={settings.gapClick ? "is-active" : ""}
+                type="button"
+                onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
+                aria-pressed={settings.gapClick}
+                title={ui(
+                  "时间轴继续，仅随机关闭声音和节拍动画",
+                  "Keep the timeline running while randomly muting sound and beat animation",
+                )}
+              >
+                <VolumeX />
+                <span>{ui("随机空拍", "Random gaps")}</span>
+              </button>
+              <div
+                className="gap-levels"
+                role="group"
+                aria-label={ui("随机空拍难度", "Random gap difficulty")}
+              >
+                {GAP_DIFFICULTIES.map((option) => (
+                  <button
+                    key={option.value}
+                    className={settings.gapDifficulty === option.value ? "is-selected" : ""}
+                    type="button"
+                    onClick={() => changeGapClick({ gapDifficulty: option.value })}
+                    disabled={!settings.gapClick}
+                    aria-pressed={settings.gapDifficulty === option.value}
+                    title={ui(option.title, {
+                      easy: "Sound for 3–5 bars, mute for 1 bar",
+                      medium: "Sound for 2–4 bars, mute for 1–2 bars",
+                      hard: "Sound for 1–3 bars, mute for 2–4 bars",
+                    }[option.value])}
+                  >
+                    {ui(option.label, {
+                      easy: "Easy",
+                      medium: "Medium",
+                      hard: "Hard",
+                    }[option.value])}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -3091,6 +2538,84 @@ export default function App() {
                 </small>
               </span>
             </div>
+            <div className="rhythm-library rhythm-editor-library">
+              <select
+                value={selectedRhythmId}
+                onChange={(event) => switchLocalRhythm(event.target.value)}
+                aria-label={ui("切换节奏预设", "Choose rhythm preset")}
+              >
+                <option value="">{ui("新节奏", "New rhythm")}</option>
+                {PRACTICE_PRESET_WEEKS.map((week) => (
+                  <optgroup key={week.id} label={`${ui("教程", "Tutorial")} / ${week.label}`}>
+                    {week.exercises.flatMap((exercise) =>
+                      exercise.presets.map((preset) => (
+                        <option key={preset.id} value={`${TUTORIAL_PREFIX}${preset.id}`}>
+                          {exercise.label}{exercise.presets.length > 1 ? ` / ${preset.label}` : ""}
+                        </option>
+                      )),
+                    )}
+                  </optgroup>
+                ))}
+                {savedRhythms.length > 0 && (
+                  <optgroup label={ui("我的预设", "My presets")}>
+                    {savedRhythms.map((saved) => (
+                      <option key={saved.id} value={saved.id}>{saved.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <input
+                type="text"
+                value={rhythmName}
+                onChange={(event) => setRhythmName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") saveLocalRhythm();
+                }}
+                maxLength={40}
+                placeholder={rhythmDefaultName(settings)}
+                aria-label={ui("节奏名称，可留空自动命名", "Rhythm name, optional")}
+              />
+              <button
+                type="button"
+                onClick={saveLocalRhythm}
+                aria-label={ui("保存节奏", "Save rhythm")}
+                title={ui("保存节奏", "Save rhythm")}
+              >
+                <Save />
+                <span>{ui("保存", "Save")}</span>
+              </button>
+              <button
+                className="is-danger"
+                type="button"
+                onClick={deleteLocalRhythm}
+                disabled={!savedRhythms.some(({ id }) => id === selectedRhythmId)}
+                aria-label={ui("删除当前保存的节奏", "Delete saved rhythm")}
+                title={ui("删除当前保存的节奏", "Delete saved rhythm")}
+              >
+                <Trash2 />
+              </button>
+              <button
+                type="button"
+                onClick={exportRhythm}
+                aria-label={ui("复制节奏编码", "Copy rhythm code")}
+                title={ui("复制节奏编码", "Copy rhythm code")}
+              >
+                <Copy />
+                <span>{ui("复制", "Copy")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRhythmCode("");
+                  setShowRhythmCode(true);
+                }}
+                aria-label={ui("导入节奏编码", "Import rhythm code")}
+                title={ui("导入节奏编码", "Import rhythm code")}
+              >
+                <ClipboardPaste />
+                <span>{ui("导入", "Import")}</span>
+              </button>
+            </div>
             <div className="rhythm-toolbar">
               <button
                 className={`matrix-icon-button ${settings.loopBar !== null ? "is-active" : ""}`}
@@ -3102,37 +2627,6 @@ export default function App() {
               >
                 <Repeat2 />
               </button>
-              <div
-                className="bar-pages"
-                role="tablist"
-                aria-label={ui("小节", "Bars")}
-                aria-multiselectable={selectingBars || undefined}
-              >
-                {settings.bars.map((_, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    className={[
-                      (selectingBars
-                        ? selectedBarIndexes.includes(index)
-                        : loopRange && index >= loopRange[0] && index <= loopRange[1])
-                        ? "is-selected"
-                        : "",
-                      playing && !visual.gap && index === visual.bar ? "is-playing" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onClick={(event) => selectBar(index, event)}
-                    role="tab"
-                    aria-selected={
-                      selectingBars ? selectedBarIndexes.includes(index) : index === editorBarIndex
-                    }
-                    aria-label={ui(`第 ${index + 1} 小节`, `Bar ${index + 1}`)}
-                  >
-                    <i aria-hidden="true" />
-                  </button>
-                ))}
-              </div>
               <button
                 className="matrix-control"
                 type="button"
@@ -3307,13 +2801,6 @@ export default function App() {
                                 className={[
                                   "rhythm-dot",
                                   `state-${step}`,
-                                  playing &&
-                                  !visual.gap &&
-                                  visual.bar === editorBarIndex &&
-                                  visual.beat === beatIndex &&
-                                  visual.sub === sub
-                                    ? "is-playing"
-                                    : "",
                                 ]
                                   .filter(Boolean)
                                   .join(" ")}
@@ -3322,6 +2809,7 @@ export default function App() {
                                 }}
                                 onPress={() => toggleStep(beatIndex, sub)}
                                 onHold={() => toggleStep(beatIndex, sub, true)}
+                                visualKey={`${beatIndex}:${sub}`}
                                 label={ui(
                                   `第 ${beatIndex + 1} 拍第 ${sub + 1} 格：${stateName}`,
                                   `Beat ${beatIndex + 1}, step ${sub + 1}: ${stateName}`,
@@ -3381,11 +2869,11 @@ export default function App() {
                       : loopRange && barIndex >= loopRange[0] && barIndex <= loopRange[1])
                       ? "is-selected"
                       : "",
-                    playing && !visual.gap && visual.bar === barIndex ? "is-playing" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   type="button"
+                  data-visual-bar-preview={barIndex}
                   onClick={(event) => selectBar(barIndex, event)}
                   aria-label={ui(
                     `第 ${barIndex + 1} 小节预览`,
@@ -3406,18 +2894,8 @@ export default function App() {
                         {beat.steps.map((step, sub) => (
                           <i
                             key={sub}
-                            className={[
-                              `state-${step}`,
-                              playing &&
-                              !visual.gap &&
-                              visual.bar === barIndex &&
-                              visual.beat === beatIndex &&
-                              visual.sub === sub
-                                ? "is-playing"
-                                : "",
-                            ]
-                              .filter(Boolean)
-                              .join(" ")}
+                            className={`state-${step}`}
+                            data-visual-preview-step={`${barIndex}:${beatIndex}:${sub}`}
                           />
                         ))}
                       </span>
@@ -3426,243 +2904,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-          </div>
-
-          <div className="setting-block sound-block">
-            <div className="setting-label">
-              <span>{ui("音色", "Sound")}</span>
-            </div>
-            <div className="sound-grid" aria-label={ui("节拍音色", "Metronome sound")}>
-              {SOUNDS.map((sound) => (
-                <button
-                  key={sound.value}
-                  type="button"
-                  className={settings.sound === sound.value ? "is-selected" : ""}
-                  aria-pressed={settings.sound === sound.value}
-                  onClick={() => updateSettings({ sound: sound.value })}
-                >
-                  <i className={`sound-mark sound-${sound.value}`} aria-hidden="true" />
-                  <span>
-                    {ui(sound.label, {
-                      click: "Crisp",
-                      wood: "Woodblock",
-                      drum: "Drum",
-                      soft: "Soft",
-                    }[sound.value])}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="setting-block volume-block">
-            <div className="setting-label">
-              <span>{ui("音量", "Volume")}</span>
-              <small>{settings.muted ? ui("静音", "Muted") : `${settings.volume}%`}</small>
-            </div>
-            <div className="volume-control">
-              <button
-                className="volume-button"
-                type="button"
-                onClick={() => updateSettings({ muted: !settings.muted })}
-                aria-label={
-                  settings.muted ? ui("取消静音", "Unmute") : ui("静音", "Mute")
-                }
-                aria-pressed={settings.muted}
-              >
-                {settings.muted ? <VolumeX /> : <Volume2 />}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={settings.volume}
-                onChange={(event) =>
-                  updateSettings({ volume: Number(event.target.value), muted: false })
-                }
-                aria-label={ui("节拍音量", "Metronome volume")}
-                style={{ "--range-progress": `${settings.volume}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="setting-block analysis-setting">
-            <div className="setting-label analysis-setting-heading">
-              <span>
-                <strong>{ui("录音分析", "Recording analysis")}</strong>
-                <small>
-                  {ui(
-                    "对比当前高级节奏，记录练习进步",
-                    "Compare with the current advanced rhythm and track your progress",
-                  )}
-                </small>
-              </span>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={settings.rhythmAnalysis}
-                  onChange={(event) =>
-                    updateSettings({ rhythmAnalysis: event.target.checked })
-                  }
-                  disabled={recording}
-                  aria-label={ui("录音分析", "Recording analysis")}
-                />
-                <span aria-hidden="true" />
-              </label>
-            </div>
-
-            {settings.rhythmAnalysis && (
-              <section
-                className="practice-analysis"
-                aria-label={ui("节奏录音分析", "Rhythm recording analysis")}
-              >
-                <p className="analysis-warning" role="note">
-                  {ui(
-                    "测试中 · 当前功能仍不稳定，暂不建议使用",
-                    "Experimental · This feature is still unstable and not recommended yet",
-                  )}
-                </p>
-                <div className="practice-analysis-heading">
-                  <div
-                    className="analysis-mode"
-                    role="group"
-                    aria-label={ui("节奏播放方式", "Rhythm playback mode")}
-                  >
-                    <button
-                      className={!settings.analysisLoop ? "is-selected" : ""}
-                      type="button"
-                      onClick={() => updateSettings({ analysisLoop: false })}
-                      disabled={recording}
-                      aria-pressed={!settings.analysisLoop}
-                    >
-                      {ui("播放一遍", "Play once")}
-                    </button>
-                    <button
-                      className={settings.analysisLoop ? "is-selected" : ""}
-                      type="button"
-                      onClick={() => updateSettings({ analysisLoop: true })}
-                      disabled={recording}
-                      aria-pressed={settings.analysisLoop}
-                    >
-                      {ui("循环播放", "Loop")}
-                    </button>
-                  </div>
-                  <button
-                    className={`record-button ${recording ? "is-active" : ""}`}
-                    type="button"
-                    onClick={recording ? finishPracticeRecording : beginPracticeRecording}
-                  >
-                    {recording ? <Square fill="currentColor" /> : <Mic />}
-                    {recording
-                      ? ui("停止并分析", "Stop and analyze")
-                      : ui("开始录音", "Start recording")}
-                  </button>
-                  {recordingAudio && !recording && (
-                    <button className="record-button" type="button" onClick={exportPracticeAudio}>
-                      <Download />
-                      {ui("导出录音", "Export recording")}
-                    </button>
-                  )}
-                </div>
-
-                {analysis ? (
-                  <>
-                    <div className="analysis-result-heading">
-                      <span>
-                        <strong>{ui("本次结果", "This result")}</strong>
-                        <small>
-                          {ui(
-                            `${analysis.expectedCount} 个节奏基准点`,
-                            `${analysis.expectedCount} rhythm reference ${
-                              analysis.expectedCount === 1 ? "point" : "points"
-                            }`,
-                          )}
-                        </small>
-                      </span>
-                    </div>
-                    <div className="analysis-stats">
-                      <span>
-                        <strong>{analysis.stableRate}%</strong>
-                        <small>{ui("稳定率", "Stability")}</small>
-                      </span>
-                      <span>
-                        <strong>{Math.round(analysis.meanAbsMs)}ms</strong>
-                        <small>{ui("平均误差", "Mean error")}</small>
-                      </span>
-                      <span>
-                        <strong>{analysis.actualBpm ? Math.round(analysis.actualBpm) : "—"}</strong>
-                        <small>{ui("实际 BPM", "Actual BPM")}</small>
-                      </span>
-                      <span>
-                        <strong>{analysis.missed} / {analysis.extra}</strong>
-                        <small>{ui("漏弹 / 多弹", "Missed / Extra")}</small>
-                      </span>
-                    </div>
-                    <HistoryComparison
-                      current={analysis.record}
-                      history={visibleHistory}
-                      isEnglish={isEnglish}
-                    />
-                    <TimingThumbnail analysis={analysis} isEnglish={isEnglish} />
-                    <div
-                      className="timing-legend"
-                      aria-label={ui("缩略图图例", "Timing thumbnail legend")}
-                    >
-                      <span className="is-steady">
-                        {ui(`准确 ${analysis.onTime}`, `On time ${analysis.onTime}`)}
-                      </span>
-                      <span className="is-early">
-                        {ui(`偏快 ${analysis.early}`, `Early ${analysis.early}`)}
-                      </span>
-                      <span className="is-late">
-                        {ui(`偏慢 ${analysis.late}`, `Late ${analysis.late}`)}
-                      </span>
-                      <span className="is-missed">
-                        {ui(`漏弹 ${analysis.missed}`, `Missed ${analysis.missed}`)}
-                      </span>
-                      <span className="is-extra">
-                        {ui(`多弹 ${analysis.extra}`, `Extra ${analysis.extra}`)}
-                      </span>
-                    </div>
-                    <TimingBreakdown analysis={analysis} isEnglish={isEnglish} />
-                    <p className="analysis-note">
-                      {ui(
-                        `已自动校正固定延迟 ${Math.round(
-                          analysis.calibrationMs,
-                        )}ms，允许误差 ±${Math.round(analysis.toleranceMs)}ms。`,
-                        `Fixed latency of ${Math.round(
-                          analysis.calibrationMs,
-                        )}ms was corrected automatically; tolerance ±${Math.round(
-                          analysis.toleranceMs,
-                        )}ms.`,
-                      )}
-                    </p>
-                  </>
-                ) : (
-                  <p className="analysis-empty">
-                    {ui(
-                      `一小节预备拍后开始；${
-                        settings.analysisLoop
-                          ? "循环播放至手动停止，最长 2 分钟。"
-                          : "播放当前节奏一遍后自动分析。"
-                      }`,
-                      `Starts after a one-bar count-in; ${
-                        settings.analysisLoop
-                          ? "loops until stopped manually, for up to 2 minutes."
-                          : "plays the current rhythm once, then analyzes it automatically."
-                      }`,
-                    )}
-                  </p>
-                )}
-                {!analysis && (
-                  <HistoryComparison
-                    current={null}
-                    history={visibleHistory}
-                    isEnglish={isEnglish}
-                  />
-                )}
-              </section>
-            )}
           </div>
 
           </div>
@@ -3676,7 +2917,7 @@ export default function App() {
       )}
       <dialog
         ref={rhythmDialogRef}
-        className="install-dialog rhythm-code-dialog"
+        className="app-dialog rhythm-code-dialog"
         aria-labelledby="rhythm-code-title"
         onClose={() => setShowRhythmCode(false)}
         onClick={(event) => {
@@ -3730,51 +2971,6 @@ export default function App() {
             onChange={importMusicXml}
           />
         </label>
-      </dialog>
-      <dialog
-        ref={installDialogRef}
-        className="install-dialog"
-        aria-labelledby="install-title"
-        onClose={() => setShowInstallHelp(false)}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) setShowInstallHelp(false);
-        }}
-      >
-        <button
-          className="dialog-close"
-          type="button"
-          onClick={() => setShowInstallHelp(false)}
-          aria-label={ui("关闭", "Close")}
-        >
-          <X />
-        </button>
-        <span className="dialog-icon" aria-hidden="true">
-          <Download />
-        </span>
-        <h2 id="install-title">
-          {ui("添加 KESSOKU BEAT 到桌面", "Add KESSOKU BEAT to your home screen")}
-        </h2>
-        {isIOS ? (
-          <ol className="install-steps">
-            <li>
-              {ui("点击 Safari 的", "Tap Safari's")} <Share2 aria-hidden="true" />{" "}
-              {ui("分享", "Share button")}
-            </li>
-            <li>{ui("选择“添加到主屏幕”", "Choose “Add to Home Screen”")}</li>
-            <li>{ui("开启“打开为 Web App”", "Turn on “Open as Web App”")}</li>
-            <li>{ui("点击“添加”", "Tap “Add”")}</li>
-          </ol>
-        ) : (
-          <p>
-            {ui(
-              "打开浏览器菜单，选择“安装应用”或“添加到主屏幕”。",
-              "Open your browser menu, then choose “Install app” or “Add to Home Screen”.",
-            )}
-          </p>
-        )}
-        <button className="dialog-done" type="button" onClick={() => setShowInstallHelp(false)}>
-          {ui("知道了", "Got it")}
-        </button>
       </dialog>
     </div>
   );

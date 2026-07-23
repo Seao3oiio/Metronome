@@ -25,7 +25,6 @@ export default defineConfig({
         "Bravura-OFL.txt",
         "kessoku-beat-hitori-social.png",
         "ZCOOL-KuaiLe-OFL.txt",
-        "themes/hitori.png",
       ],
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,ttf,txt}"],
@@ -33,7 +32,7 @@ export default defineConfig({
       manifest: {
         name: "KESSOKU BEAT",
         short_name: "KESSOKU",
-        description: "支持自定义节奏、自动变速和录音分析的乐队练习节拍器",
+        description: "支持自定义节奏、自动变速和随机空拍的乐队练习节拍器",
         lang: "zh-CN",
         id: pwaId,
         theme_color: "#ff4f9a",

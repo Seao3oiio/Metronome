@@ -7,14 +7,12 @@ import { musicXmlToRhythm } from "./musicXml.js";
 import {
   BEAT_UNITS,
   advanceMinuteDeadline,
-  analyzeRhythmRecording,
   applyBeatPattern,
   bpmFromTaps,
   clampBpm,
   compileRhythm,
   cycleBeatState,
   decodeRhythm,
-  detectGuitarOnsets,
   encodeRhythm,
   hasOffbeatSteps,
   makeClickTrackWav,
@@ -27,6 +25,7 @@ import {
   normalizeLoopRange,
   nextQuickPatternId,
   nextTrainingBpm,
+  playbackVisualMarkers,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   removeBarSelection,
@@ -203,6 +202,21 @@ test("tempo helpers keep practice input inside the supported range", () => {
   assert.equal(tempoName(120), "快板 · Allegro");
 });
 
+test("playback markers update only the active visual elements", () => {
+  assert.deepEqual(playbackVisualMarkers({ bar: 2, beat: 1, sub: 3, gap: false }, 2), [
+    { target: "stage-beat", value: 1, className: "is-active" },
+    { target: "bar-preview", value: 2, className: "is-playing" },
+    { target: "preview-step", value: "2:1:3", className: "is-playing" },
+    { target: "editor-step", value: "1:3", className: "is-playing" },
+  ]);
+  assert.equal(
+    playbackVisualMarkers({ bar: 2, beat: 1, sub: 3, gap: false }, 0)
+      .some(({ target }) => target === "editor-step"),
+    false,
+  );
+  assert.deepEqual(playbackVisualMarkers({ bar: 2, beat: 1, sub: 3, gap: true }, 2), []);
+});
+
 test("quick subdivision selection yields to manual rhythm edits", () => {
   assert.equal(nextQuickPatternId("eighths", { bpm: 120 }), "eighths");
   assert.equal(nextQuickPatternId("eighths", { loopBar: [0, 0] }), "eighths");
@@ -308,171 +322,6 @@ test("mixed subdivisions return to exact beat and bar boundaries", () => {
     [1, 2],
   );
   assert.equal(rhythmEventIndexAtTime(0.5, 120, compileRhythm([makeBar(2, 1)], null, 1)), 1);
-});
-
-test("guitar timing analysis detects attacks, aligns latency, and flags an extra note", () => {
-  const sampleRate = 8000;
-  const samples = new Float32Array(sampleRate * 3);
-  [0.23, 0.42, 0.74, 1.19, 1.78].forEach((onset) => {
-    const start = Math.round(onset * sampleRate);
-    for (let index = 0; index < sampleRate * 0.12; index += 1) {
-      const time = index / sampleRate;
-      samples[start + index] +=
-        0.8 * Math.exp(-time * 28) * Math.sin(2 * Math.PI * 220 * time);
-    }
-  });
-
-  assert.equal(detectGuitarOnsets(samples, sampleRate).length, 5);
-  const analysis = analyzeRhythmRecording(samples, sampleRate, {
-    bpm: 120,
-    bars: [makeBar(2, 1), makeBar(2, 1)],
-    loopBar: null,
-    rhythmStart: 0.2,
-    duration: 2,
-  });
-  assert.equal(analysis.matchedCount, 4);
-  assert.equal(analysis.extra, 1);
-  assert.equal(analysis.missed, 0);
-  assert.equal(Math.round(analysis.calibrationMs), 30);
-  assert.equal(analysis.stableRate, 50);
-  assert.deepEqual(
-    analysis.timingBars.map(({ number, hits }) => ({
-      number,
-      beats: hits.map(({ beat }) => beat),
-      kinds: hits.map(({ kind }) => kind),
-    })),
-    [
-      { number: 1, beats: [1, 2], kinds: ["steady", "steady"] },
-      { number: 2, beats: [1, 2], kinds: ["early", "late"] },
-    ],
-  );
-});
-
-test("guitar onset detection rejects narrowband metronome spill", () => {
-  const sampleRate = 8000;
-  const samples = new Float32Array(sampleRate * 3);
-  [0.2, 0.7, 1.2, 1.7].forEach((onset) => {
-    const start = Math.round(onset * sampleRate);
-    for (let index = 0; index < sampleRate * 0.08; index += 1) {
-      const time = index / sampleRate;
-      samples[start + index] +=
-        0.3 * Math.exp(-time * 35) * Math.sin(2 * Math.PI * 720 * time);
-    }
-  });
-
-  assert.deepEqual(detectGuitarOnsets(samples, sampleRate), []);
-});
-
-test("count-in learns speaker spill without hiding coincident guitar", () => {
-  const sampleRate = 8000;
-  const rhythmStart = 2.2;
-  const samples = new Float32Array(sampleRate * 5);
-  const addAttack = (onset, frequencies, amplitude, decay, duration) => {
-    const start = Math.round(onset * sampleRate);
-    for (let index = 0; index < sampleRate * duration; index += 1) {
-      const time = index / sampleRate;
-      samples[start + index] +=
-        amplitude *
-        Math.exp(-time * decay) *
-        frequencies.reduce(
-          (sum, [frequency, gain]) =>
-            sum + gain * Math.sin(2 * Math.PI * frequency * time),
-          0,
-        );
-    }
-  };
-  [0.235, 0.735, 1.235, 1.735, 2.235, 2.735, 3.235, 3.735].forEach((time) =>
-    addAttack(time, [[350, 1]], 0.25, 55, 0.05),
-  );
-  [2.235, 3.235].forEach((time) =>
-    addAttack(time, [[180, 1], [310, 0.6], [470, 0.3]], 0.65, 22, 0.12),
-  );
-
-  const analysis = analyzeRhythmRecording(samples, sampleRate, {
-    bpm: 120,
-    bars: [makeBar(4, 1)],
-    loopBar: null,
-    rhythmStart,
-    duration: 2,
-  });
-  assert.equal(analysis.detectedCount, 2);
-  assert.equal(analysis.matchedCount, 2);
-  assert.equal(analysis.missed, 2);
-  assert.equal(analysis.extra, 0);
-  assert.ok(Math.abs(analysis.calibrationMs - 35) < 5);
-});
-
-test("slow guitar practice keeps early strokes paired with their beats", () => {
-  const sampleRate = 8000;
-  const samples = new Float32Array(sampleRate * 7);
-  [0.5, 1.72, 3.18, 4.7].forEach((onset) => {
-    const start = Math.round(onset * sampleRate);
-    for (let index = 0; index < sampleRate * 0.12; index += 1) {
-      const time = index / sampleRate;
-      samples[start + index] +=
-        0.8 * Math.exp(-time * 28) * Math.sin(2 * Math.PI * 220 * time);
-    }
-  });
-
-  const analysis = analyzeRhythmRecording(samples, sampleRate, {
-    bpm: 40,
-    bars: [makeBar(4, 1)],
-    loopBar: null,
-    rhythmStart: 0.5,
-    duration: 6,
-  });
-  assert.equal(analysis.matchedCount, 4);
-  assert.equal(analysis.extra, 0);
-  assert.equal(analysis.missed, 0);
-});
-
-test("guitar timing analysis counts one ringing strum as one onset", () => {
-  const sampleRate = 8000;
-  const samples = new Float32Array(sampleRate * 3);
-  [0.23, 0.73, 1.23, 1.73].forEach((onset) => {
-    [0, 0.07, 0.14].forEach((ring) => {
-      const start = Math.round((onset + ring) * sampleRate);
-      for (let index = 0; index < sampleRate * 0.025; index += 1) {
-        const time = index / sampleRate;
-        samples[start + index] +=
-          (0.7 - ring * 2) * Math.exp(-time * 80) * Math.sin(2 * Math.PI * 220 * time);
-      }
-    });
-  });
-
-  const analysis = analyzeRhythmRecording(samples, sampleRate, {
-    bpm: 120,
-    bars: [makeBar(4, 1)],
-    loopBar: null,
-    rhythmStart: 0.2,
-    duration: 2,
-  });
-  assert.equal(analysis.detectedCount, 4);
-  assert.equal(analysis.extra, 0);
-});
-
-test("guitar timing analysis rejects dense background transients", () => {
-  const sampleRate = 8000;
-  const samples = new Float32Array(sampleRate * 3);
-  for (let onset = 0.23; onset < 2.2; onset += 0.08) {
-    const start = Math.round(onset * sampleRate);
-    for (let index = 0; index < sampleRate * 0.025; index += 1) {
-      const time = index / sampleRate;
-      samples[start + index] +=
-        0.2 * Math.exp(-time * 100) * Math.sin(2 * Math.PI * 900 * time);
-    }
-  }
-
-  assert.throws(
-    () => analyzeRhythmRecording(samples, sampleRate, {
-      bpm: 120,
-      bars: [makeBar(4, 1)],
-      loopBar: null,
-      rhythmStart: 0.2,
-      duration: 2,
-    }),
-    /没有检测到(?:足够)?清晰的吉他/,
-  );
 });
 
 test("rhythm codes round-trip and reject malformed data", () => {
