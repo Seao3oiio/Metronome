@@ -68,7 +68,18 @@ const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
 const PRACTICE_HISTORY_KEY = "pulse-practice-history-v1";
 const LEGACY_SETTINGS_KEY = "pulse-settings";
 const SETTINGS_KEY = "pulse-advanced-settings-v1";
+const APPEARANCE_KEY = "kessoku-beat-appearance-v1";
 const TUTORIAL_PREFIX = "tutorial:";
+const CHARACTER_THEMES = [
+  { id: "hitori", label: "後藤ひとり", ready: true },
+  { id: "nijika", label: "伊地知虹夏", ready: false },
+  { id: "ryo", label: "山田リョウ", ready: false },
+  { id: "kita", label: "喜多郁代", ready: false },
+];
+const VISUAL_STYLES = [
+  { id: "poster", label: "ポスター" },
+  { id: "notebook", label: "ノート" },
+];
 const PRACTICE_PRESETS = PRACTICE_PRESET_WEEKS.flatMap((week) =>
   week.exercises.flatMap((exercise) =>
     exercise.presets.map((preset) => ({ week, exercise, preset })),
@@ -106,8 +117,9 @@ const SOUND_NOTES = {
   soft: { accent: 940, normal: 720, duration: 0.04 },
 };
 
+const SETTINGS_SCHEMA_VERSION = 4;
 const DEFAULT_SETTINGS = {
-  schemaVersion: 3,
+  schemaVersion: SETTINGS_SCHEMA_VERSION,
   bpm: 96,
   beatUnit: 4,
   bars: null,
@@ -128,9 +140,111 @@ const DEFAULT_SETTINGS = {
   rhythmAnalysis: false,
   analysisLoop: false,
   distinguishOffbeats: true,
-  volume: 72,
+  volume: 100,
   muted: false,
 };
+
+function loadAppearance() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY));
+    return {
+      character: saved?.character === "hitori" ? saved.character : "hitori",
+      style: VISUAL_STYLES.some(({ id }) => id === saved?.style) ? saved.style : "poster",
+      locale: saved?.locale === "en" ? "en" : "zh",
+    };
+  } catch {
+    return { character: "hitori", style: "poster", locale: "zh" };
+  }
+}
+
+const STATUS_EN = {
+  就绪: "Ready",
+  已停止: "Stopped",
+  "正在分析…": "Analyzing…",
+  录音已取消: "Recording canceled",
+  "保存的节奏已删除": "Saved rhythm deleted",
+  "保存的节奏无效": "Saved rhythm is invalid",
+  "切换节奏…": "Switching rhythm…",
+  删除失败: "Delete failed",
+  小节已排序: "Bars reordered",
+  已保存到本机: "Saved on this device",
+  已暂停: "Paused",
+  已撤销: "Undone",
+  已重做: "Redone",
+  已更新选择: "Selection updated",
+  已退出多选: "Multi-select closed",
+  "开启声音…": "Starting audio…",
+  当前浏览器不支持录音: "Recording is not supported",
+  当前练习没有需要弹奏的节奏点: "This practice has no rhythm notes",
+  "录音中 · 循环": "Recording · Looping",
+  录音中: "Recording",
+  录音已导出: "Recording exported",
+  "最多保存 50 个节奏": "Up to 50 rhythms can be saved",
+  本地保存失败: "Local save failed",
+  点击恢复: "Tap to resume",
+  点选要操作的小节: "Select bars to edit",
+  "继续 Tap": "Keep tapping",
+  继续播放原节奏: "Continuing the current rhythm",
+  编码无效: "Invalid code",
+  节奏已更新: "Rhythm updated",
+  节奏已切换: "Rhythm switched",
+  节奏已导入: "Rhythm imported",
+  节奏编码已复制: "Rhythm code copied",
+  "设置已更新 · 将从头开始": "Updated · restarting from the beginning",
+  重新开始: "Restarting",
+  准备录音: "Preparing to record",
+  需要麦克风权限才能录音: "Microphone permission is required",
+  无法开始录音: "Unable to start recording",
+  请先完成录音: "Finish the recording first",
+  请再次点击: "Tap again",
+  请手动复制编码: "Copy the code manually",
+  "请求麦克风权限…": "Requesting microphone access…",
+  运行中: "Playing",
+  "预备 1 小节": "Count-in · 1 bar",
+  循环全部小节: "Looping all bars",
+  循环所选段落: "Looping selection",
+  循环所选小节: "Looping selected bar",
+  循环当前小节: "Looping current bar",
+  教材要求本练习不使用节拍器: "This exercise requires no metronome",
+};
+
+function localizeStatus(status, isEnglish) {
+  if (!isEnglish) return status;
+  if (STATUS_EN[status]) return STATUS_EN[status];
+
+  let match = status.match(/^分析完成 · 稳定率 (\d+)%$/);
+  if (match) return `Analysis complete · Stable rate ${match[1]}%`;
+
+  match = status.match(/^分析失败：(.+)$/);
+  if (match) return `Analysis failed: ${match[1]}`;
+
+  match = status.match(/^(\d+) 个小节已删除$/);
+  if (match) return `${match[1]} ${match[1] === "1" ? "bar" : "bars"} deleted`;
+
+  match = status.match(/^已选择 (\d+) 个小节$/);
+  if (match) return `${match[1]} ${match[1] === "1" ? "bar" : "bars"} selected`;
+
+  match = status.match(/^(\d+) 个小节已复制，选择位置后粘贴$/);
+  if (match) {
+    return `${match[1]} ${match[1] === "1" ? "bar" : "bars"} copied · choose where to paste`;
+  }
+
+  match = status.match(/^(\d+) 个小节已粘贴$/);
+  if (match) return `${match[1]} ${match[1] === "1" ? "bar" : "bars"} pasted`;
+
+  match = status.match(/^已载入 (.+)$/);
+  if (match) return `Loaded ${match[1]}`;
+
+  match = status.match(/^MusicXML 无法导入：(.+)$/);
+  if (match) {
+    const reason = match[1] === "速度、拍号或细分超出高级节奏支持范围"
+      ? "tempo, meter, or subdivision is outside the supported range"
+      : match[1];
+    return `MusicXML import failed: ${reason}`;
+  }
+
+  return status;
+}
 
 function freshSettings() {
   return { ...DEFAULT_SETTINGS, bars: [makeBar(4, 1)] };
@@ -150,7 +264,7 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
 
     return {
       ...defaults,
-      schemaVersion: 3,
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
       bpm: clampBpm(saved.bpm ?? defaults.bpm),
       beatUnit: BEAT_UNITS.includes(saved.beatUnit) ? saved.beatUnit : defaults.beatUnit,
       bars,
@@ -168,9 +282,13 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
       changeAmount: [1, 2, 3, 5, 10].includes(saved.changeAmount)
         ? saved.changeAmount
         : defaults.changeAmount,
-      volume: Number.isFinite(Number(saved.volume))
-        ? Math.min(100, Math.max(0, Number(saved.volume)))
-        : defaults.volume,
+      volume:
+        Number(saved.schemaVersion ?? 0) < SETTINGS_SCHEMA_VERSION &&
+        Number(saved.volume) === 72
+          ? defaults.volume
+          : Number.isFinite(Number(saved.volume))
+            ? Math.min(100, Math.max(0, Number(saved.volume)))
+            : defaults.volume,
       trainer: Boolean(saved.trainer),
       gapClick: Boolean(saved.gapClick),
       countIn: Boolean(saved.countIn),
@@ -236,13 +354,15 @@ function loadPracticeHistory() {
   }
 }
 
-function TimingThumbnail({ analysis }) {
+function TimingThumbnail({ analysis, isEnglish }) {
   return (
     <svg
       className="timing-thumbnail"
       viewBox="0 0 120 44"
       role="img"
-      aria-label="录音波形和节奏偏差缩略图"
+      aria-label={isEnglish
+        ? "Recording waveform and timing-deviation overview"
+        : "录音波形和节奏偏差缩略图"}
       preserveAspectRatio="none"
     >
       <line className="waveform-axis" x1="0" y1="22" x2="120" y2="22" />
@@ -270,13 +390,13 @@ function TimingThumbnail({ analysis }) {
   );
 }
 
-function TimingBreakdown({ analysis }) {
+function TimingBreakdown({ analysis, isEnglish }) {
   const range = Math.max(100, analysis.toleranceMs * 3);
   return (
     <div className="bar-timing-panel">
       <div className="bar-timing-title">
-        <strong>逐拍基准</strong>
-        <span>快 ← 0ms → 慢</span>
+        <strong>{isEnglish ? "Beat-by-beat reference" : "逐拍基准"}</strong>
+        <span>{isEnglish ? "Early ← 0ms → Late" : "快 ← 0ms → 慢"}</span>
       </div>
       <div className="bar-timing-list">
         {analysis.timingBars.map((bar) => {
@@ -284,23 +404,29 @@ function TimingBreakdown({ analysis }) {
           return (
             <div className="bar-timing-group" key={bar.number}>
               <header>
-                <strong>第 {bar.number} 小节</strong>
+                <strong>{isEnglish ? `Bar ${bar.number}` : `第 ${bar.number} 小节`}</strong>
                 <span>
-                  准 {count("steady")} · 快 {count("early")} · 慢 {count("late")} · 漏 {count("missed")}
+                  {isEnglish
+                    ? `On time ${count("steady")} · Early ${count("early")} · Late ${count("late")} · Missed ${count("missed")}`
+                    : `准 ${count("steady")} · 快 ${count("early")} · 慢 ${count("late")} · 漏 ${count("missed")}`}
                 </span>
               </header>
               <div className="beat-timing-grid">
                 {bar.hits.map((hit) => {
-                  const label = hit.steps === 1
-                    ? `第 ${hit.beat} 拍`
-                    : `${hit.beat} 拍 · ${hit.step}/${hit.steps}`;
+                  const label = isEnglish
+                    ? hit.steps === 1
+                      ? `Beat ${hit.beat}`
+                      : `Beat ${hit.beat} · ${hit.step}/${hit.steps}`
+                    : hit.steps === 1
+                      ? `第 ${hit.beat} 拍`
+                      : `${hit.beat} 拍 · ${hit.step}/${hit.steps}`;
                   const rounded = Math.round(hit.deviationMs ?? 0);
                   const result = hit.kind === "missed"
-                    ? "漏弹"
+                    ? isEnglish ? "Missed" : "漏弹"
                     : hit.kind === "early"
-                      ? `快 ${Math.abs(rounded)}ms`
+                      ? `${isEnglish ? "Early" : "快"} ${Math.abs(rounded)}ms`
                       : hit.kind === "late"
-                        ? `慢 ${Math.abs(rounded)}ms`
+                        ? `${isEnglish ? "Late" : "慢"} ${Math.abs(rounded)}ms`
                         : `${rounded > 0 ? "+" : ""}${rounded}ms`;
                   const position = hit.kind === "missed"
                     ? 50
@@ -310,7 +436,7 @@ function TimingBreakdown({ analysis }) {
                       className={`beat-timing is-${hit.kind}`}
                       key={`${hit.beat}-${hit.step}`}
                       role="group"
-                      aria-label={`${label}，${result}`}
+                      aria-label={`${label}${isEnglish ? ", " : "，"}${result}`}
                     >
                       <div className="beat-timing-label">
                         <span>{label}</span>
@@ -331,7 +457,7 @@ function TimingBreakdown({ analysis }) {
   );
 }
 
-function ProgressTrend({ history }) {
+function ProgressTrend({ history, isEnglish }) {
   if (history.length < 2) return null;
   const values = history.slice(-8);
   const points = values
@@ -343,8 +469,14 @@ function ProgressTrend({ history }) {
     .join(" ");
   return (
     <div className="progress-trend">
-      <span>最近 {values.length} 次稳定率</span>
-      <svg viewBox="0 0 100 32" role="img" aria-label="历史稳定率趋势">
+      <span>
+        {isEnglish ? `Stable rate · last ${values.length} sessions` : `最近 ${values.length} 次稳定率`}
+      </span>
+      <svg
+        viewBox="0 0 100 32"
+        role="img"
+        aria-label={isEnglish ? "Historical stable-rate trend" : "历史稳定率趋势"}
+      >
         <polyline points={points} />
         {values.map((item, index) => (
           <circle
@@ -359,7 +491,7 @@ function ProgressTrend({ history }) {
   );
 }
 
-function HistoryComparison({ current, history }) {
+function HistoryComparison({ current, history, isEnglish }) {
   const currentIndex = current
     ? history.findIndex(({ at }) => at === current.at)
     : history.length - 1;
@@ -379,20 +511,24 @@ function HistoryComparison({ current, history }) {
   return (
     <div className="history-comparison">
       <div className="history-comparison-title">
-        <strong>历史对比</strong>
-        <span>同一节奏 · 最近 {history.length} 次</span>
+        <strong>{isEnglish ? "History comparison" : "历史对比"}</strong>
+        <span>
+          {isEnglish
+            ? `Same rhythm · last ${history.length} sessions`
+            : `同一节奏 · 最近 ${history.length} 次`}
+        </span>
       </div>
       {previous && latest ? (
         <div className="history-deltas">
           <span>
-            <small>稳定率</small>
+            <small>{isEnglish ? "Stable rate" : "稳定率"}</small>
             <strong>{previous.stableRate}% → {latest.stableRate}%</strong>
             <em className={stableDelta >= 0 ? "is-better" : "is-worse"}>
               {stableDelta > 0 ? "+" : ""}{stableDelta}%
             </em>
           </span>
           <span>
-            <small>平均误差</small>
+            <small>{isEnglish ? "Mean error" : "平均误差"}</small>
             <strong>{Math.round(previous.meanAbsMs)}ms → {Math.round(latest.meanAbsMs)}ms</strong>
             <em className={errorDelta <= 0 ? "is-better" : "is-worse"}>
               {errorDelta > 0 ? "+" : ""}{errorDelta}ms
@@ -400,11 +536,22 @@ function HistoryComparison({ current, history }) {
           </span>
         </div>
       ) : (
-        <p>{history.length ? "已记录本次成绩；再练一次相同节奏即可看到变化。" : "完成一次练习后开始记录，同一节奏第二次起显示变化。"}</p>
+        <p>
+          {isEnglish
+            ? history.length
+              ? "This result is saved. Practice the same rhythm once more to see the change."
+              : "Results are saved after your first practice; changes appear from the second session."
+            : history.length
+              ? "已记录本次成绩；再练一次相同节奏即可看到变化。"
+              : "完成一次练习后开始记录，同一节奏第二次起显示变化。"}
+        </p>
       )}
-      <ProgressTrend history={history} />
+      <ProgressTrend history={history} isEnglish={isEnglish} />
       {history.length > 0 && (
-        <ol className="practice-history" aria-label="同一节奏最近练习记录">
+        <ol
+          className="practice-history"
+          aria-label={isEnglish ? "Recent sessions for the same rhythm" : "同一节奏最近练习记录"}
+        >
           {history.slice(-4).reverse().map((item) => (
             <li key={item.at}>
               <time dateTime={new Date(item.at).toISOString()}>
@@ -800,6 +947,17 @@ export default function App() {
   const [installed, setInstalled] = useState(
     () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
   );
+  const [appearance, setAppearance] = useState(loadAppearance);
+  const isEnglish = appearance.locale === "en";
+  const ui = useCallback(
+    (chinese, english) => (isEnglish ? english : chinese),
+    [isEnglish],
+  );
+  const selectedTheme =
+    CHARACTER_THEMES.find(({ id }) => id === appearance.character) ?? CHARACTER_THEMES[0];
+  const updateAppearance = useCallback((patch) => {
+    setAppearance((current) => ({ ...current, ...patch }));
+  }, []);
 
   const settingsRef = useRef(settings);
   const playingRef = useRef(false);
@@ -1640,6 +1798,15 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
+    document.documentElement.lang = isEnglish ? "en" : "zh-CN";
+    try {
+      localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
+    } catch {
+      // Appearance controls still work when private browsing denies storage.
+    }
+  }, [appearance, isEnglish]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(PRACTICE_HISTORY_KEY, JSON.stringify(practiceHistory));
     } catch {
@@ -1837,7 +2004,17 @@ export default function App() {
     const current = settingsRef.current;
     const result = removeBarSelection(current.bars, indexes, current.loopBar);
     if (!result) return;
-    if (indexes.length > 1 && !window.confirm(`删除选中的 ${indexes.length} 个小节？`)) return;
+    if (
+      indexes.length > 1 &&
+      !window.confirm(
+        ui(
+          `删除选中的 ${indexes.length} 个小节？`,
+          `Delete ${indexes.length} selected bars?`,
+        ),
+      )
+    ) {
+      return;
+    }
     if (playbackIntentRef.current) stop("节奏已更新");
     setSelectingBars(false);
     setSelectedBarIndexes([]);
@@ -2166,7 +2343,12 @@ export default function App() {
 
   const deleteLocalRhythm = () => {
     const saved = savedRhythms.find(({ id }) => id === selectedRhythmId);
-    if (!saved || !window.confirm(`删除“${saved.name}”？`)) return;
+    if (
+      !saved ||
+      !window.confirm(ui(`删除“${saved.name}”？`, `Delete “${saved.name}”?`))
+    ) {
+      return;
+    }
     const next = savedRhythms.filter(({ id }) => id !== selectedRhythmId);
     try {
       localStorage.setItem(RHYTHM_LIBRARY_KEY, JSON.stringify(next));
@@ -2210,13 +2392,13 @@ export default function App() {
 
   const loopActionLabel = selectedLoopRange
     ? selectedLoopMatches
-      ? "循环全部小节"
+      ? ui("循环全部小节", "Loop all bars")
       : activeBarIndexes.length > 1
-        ? "循环所选段落"
-        : "循环所选小节"
+        ? ui("循环所选段落", "Loop selection")
+        : ui("循环所选小节", "Loop selected bar")
     : loopRange
-      ? "循环全部小节"
-      : "循环当前小节";
+      ? ui("循环全部小节", "Loop all bars")
+      : ui("循环当前小节", "Loop current bar");
   const canMoveBarsLeft = activeBarIndexes.some(
     (index) => index > 0 && !activeBarIndexSet.has(index - 1),
   );
@@ -2244,7 +2426,7 @@ export default function App() {
     const url = URL.createObjectURL(recordingAudio.blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `pulse-${new Date(recordingAudio.at).toISOString().slice(0, 19).replaceAll(":", "-")}.${extension}`;
+    link.download = `kessoku-beat-${new Date(recordingAudio.at).toISOString().slice(0, 19).replaceAll(":", "-")}.${extension}`;
     document.body.append(link);
     link.click();
     link.remove();
@@ -2310,21 +2492,86 @@ export default function App() {
     }
   };
 
-  const playbackActionLabel = playing ? "暂停" : paused ? "继续" : "开始";
+  const playbackActionLabel = playing
+    ? ui("暂停", "Pause")
+    : paused
+      ? ui("继续", "Resume")
+      : ui("开始", "Start");
+  const displayStatus = localizeStatus(status, isEnglish);
+  const themeArtUrl = `${import.meta.env.BASE_URL}themes/hitori.png`;
 
   return (
-    <div className={`app-shell ${playing ? "is-playing" : ""} ${recording ? "is-recording" : ""}`}>
+    <div
+      className={`app-shell ${playing ? "is-playing" : ""} ${recording ? "is-recording" : ""}`}
+      data-character={appearance.character}
+      data-visual-style={appearance.style}
+      data-locale={appearance.locale}
+    >
       <header className="topbar">
-        <a className="brand" href="#main" aria-label="Pulse 节拍器首页">
+        <a className="brand" href="#main" aria-label="KESSOKU BEAT">
           <span className="brand-mark" aria-hidden="true">
             <Activity strokeWidth={2.4} />
           </span>
-          <strong>Pulse</strong>
+          <span className="brand-copy">
+            <strong>KESSOKU BEAT</strong>
+            <small>結束バンド</small>
+          </span>
         </a>
+
+        <div className="appearance-toolbar">
+          <nav
+            className="character-themes"
+            aria-label={ui("角色主题", "Character themes")}
+          >
+            {CHARACTER_THEMES.map((theme) => (
+              <button
+                key={theme.id}
+                className={appearance.character === theme.id ? "is-selected" : ""}
+                type="button"
+                onClick={() => theme.ready && updateAppearance({ character: theme.id })}
+                aria-disabled={!theme.ready}
+                aria-pressed={appearance.character === theme.id}
+                aria-label={theme.ready ? theme.label : `${theme.label} · 準備中`}
+              >
+                <i className={`member-dot is-${theme.id}`} aria-hidden="true" />
+                <span>{theme.label}</span>
+                {!theme.ready && <small>準備中</small>}
+              </button>
+            ))}
+          </nav>
+
+          <div
+            className="visual-style-switcher"
+            role="group"
+            aria-label={ui("界面风格", "Visual style")}
+          >
+            {VISUAL_STYLES.map((style) => (
+              <button
+                key={style.id}
+                className={appearance.style === style.id ? "is-selected" : ""}
+                type="button"
+                onClick={() => updateAppearance({ style: style.id })}
+                aria-pressed={appearance.style === style.id}
+              >
+                {style.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            className="locale-switch"
+            type="button"
+            onClick={() => updateAppearance({ locale: isEnglish ? "zh" : "en" })}
+            aria-label={ui("切换到英文", "Switch to Chinese")}
+          >
+            {isEnglish ? "EN / 中" : "中 / EN"}
+          </button>
+        </div>
+
         <div className="topbar-actions">
           <div className="ready-pill" role="status" aria-live="polite">
             <span aria-hidden="true" />
-            {status}
+            {displayStatus}
           </div>
           {(playing || paused) && (
             <button
@@ -2337,7 +2584,7 @@ export default function App() {
                 : playing
                   ? <Pause fill="currentColor" />
                   : <Play fill="currentColor" />}
-              {recording ? "结束录音" : playbackActionLabel}
+              {recording ? ui("结束录音", "End recording") : playbackActionLabel}
             </button>
           )}
         </div>
@@ -2345,12 +2592,56 @@ export default function App() {
 
       <main id="main" className="workspace">
         <aside className="card settings-card advanced-rhythm-card" aria-labelledby="settings-heading">
+          <section className="theme-stage" aria-label={`${selectedTheme.label} テーマ`}>
+            <div className="stage-color-blocks" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+            <figure className="stage-portrait">
+              <img src={themeArtUrl} alt={selectedTheme.label} />
+            </figure>
+            <figure className="stage-detail" aria-hidden="true">
+              <img src={themeArtUrl} alt="" />
+            </figure>
+            <div className="stage-silhouette" aria-hidden="true">
+              <img src={themeArtUrl} alt="" />
+            </div>
+            <div className="stage-stats">
+              <span>
+                <strong>{settings.bpm}</strong>
+                <small>BPM</small>
+              </span>
+              <span>
+                <strong>{editorBar.beats.length}/{settings.beatUnit}</strong>
+                <small>{ui("拍号", "Meter")}</small>
+              </span>
+              <span className="stage-beat-lights" aria-label={ui("节拍指示", "Beat indicators")}>
+                {Array.from({ length: editorBar.beats.length }, (_, index) => (
+                  <i
+                    className={
+                      playing && !visual.gap && visual.beat === index ? "is-active" : ""
+                    }
+                    key={index}
+                    aria-hidden="true"
+                  />
+                ))}
+              </span>
+            </div>
+          </section>
+
+          <div className="control-stack">
           <div className="settings-heading">
-            <h2 id="settings-heading">节奏</h2>
+            <h2 id="settings-heading">{ui("节奏", "Rhythm")}</h2>
             <div className="rhythm-share-actions">
-              <button type="button" onClick={exportRhythm} aria-label="复制节奏编码">
+              <button
+                type="button"
+                onClick={exportRhythm}
+                aria-label={ui("复制节奏编码", "Copy rhythm code")}
+              >
                 <Copy />
-                <span>复制</span>
+                <span>{ui("复制", "Copy")}</span>
               </button>
               <button
                 type="button"
@@ -2358,15 +2649,19 @@ export default function App() {
                   setRhythmCode("");
                   setShowRhythmCode(true);
                 }}
-                aria-label="导入节奏编码"
+                aria-label={ui("导入节奏编码", "Import rhythm code")}
               >
                 <ClipboardPaste />
-                <span>导入</span>
+                <span>{ui("导入", "Import")}</span>
               </button>
               {!installed && (
-                <button type="button" onClick={installApp} aria-label="添加到桌面">
+                <button
+                  type="button"
+                  onClick={installApp}
+                  aria-label={ui("添加到桌面", "Install app")}
+                >
                   <Download />
-                  <span>安装</span>
+                  <span>{ui("安装", "Install")}</span>
                 </button>
               )}
             </div>
@@ -2376,11 +2671,11 @@ export default function App() {
             <select
               value={selectedRhythmId}
               onChange={(event) => switchLocalRhythm(event.target.value)}
-              aria-label="切换节奏预设"
+              aria-label={ui("切换节奏预设", "Choose rhythm preset")}
             >
-              <option value="">新节奏</option>
+              <option value="">{ui("新节奏", "New rhythm")}</option>
               {PRACTICE_PRESET_WEEKS.map((week) => (
-                <optgroup key={week.id} label={`教程 / ${week.label}`}>
+                <optgroup key={week.id} label={`${ui("教程", "Tutorial")} / ${week.label}`}>
                   {week.exercises.flatMap((exercise) =>
                     exercise.presets.map((preset) => (
                       <option key={preset.id} value={`${TUTORIAL_PREFIX}${preset.id}`}>
@@ -2391,7 +2686,7 @@ export default function App() {
                 </optgroup>
               ))}
               {savedRhythms.length > 0 && (
-                <optgroup label="我的预设">
+                <optgroup label={ui("我的预设", "My presets")}>
                   {savedRhythms.map((saved) => (
                     <option key={saved.id} value={saved.id}>{saved.name}</option>
                   ))}
@@ -2407,19 +2702,19 @@ export default function App() {
               }}
               maxLength={40}
               placeholder={rhythmDefaultName(settings)}
-              aria-label="节奏名称，可留空自动命名"
+              aria-label={ui("节奏名称，可留空自动命名", "Rhythm name, optional")}
             />
             <button type="button" onClick={saveLocalRhythm}>
               <Save />
-              <span>保存</span>
+              <span>{ui("保存", "Save")}</span>
             </button>
             <button
               className="is-danger"
               type="button"
               onClick={deleteLocalRhythm}
               disabled={!savedRhythms.some(({ id }) => id === selectedRhythmId)}
-              aria-label="删除当前保存的节奏"
-              title="删除当前保存的节奏"
+              aria-label={ui("删除当前保存的节奏", "Delete saved rhythm")}
+              title={ui("删除当前保存的节奏", "Delete saved rhythm")}
             >
               <Trash2 />
             </button>
@@ -2430,7 +2725,7 @@ export default function App() {
               className="tempo-step"
               type="button"
               onClick={() => setBpm(settings.bpm - 10)}
-              aria-label="速度减 10 BPM"
+              aria-label={ui("速度减 10 BPM", "Decrease tempo by 10 BPM")}
             >
               −10
             </button>
@@ -2438,12 +2733,12 @@ export default function App() {
               className="tempo-step"
               type="button"
               onClick={() => setBpm(settings.bpm - 5)}
-              aria-label="速度减 5 BPM"
+              aria-label={ui("速度减 5 BPM", "Decrease tempo by 5 BPM")}
             >
               −5
             </button>
             <label className="advanced-bpm">
-              <span className="sr-only">每分钟节拍数</span>
+              <span className="sr-only">{ui("每分钟节拍数", "Beats per minute")}</span>
               <input
                 type="text"
                 inputMode="numeric"
@@ -2464,7 +2759,7 @@ export default function App() {
               className="tempo-step"
               type="button"
               onClick={() => setBpm(settings.bpm + 5)}
-              aria-label="速度加 5 BPM"
+              aria-label={ui("速度加 5 BPM", "Increase tempo by 5 BPM")}
             >
               +5
             </button>
@@ -2472,11 +2767,15 @@ export default function App() {
               className="tempo-step"
               type="button"
               onClick={() => setBpm(settings.bpm + 10)}
-              aria-label="速度加 10 BPM"
+              aria-label={ui("速度加 10 BPM", "Increase tempo by 10 BPM")}
             >
               +10
             </button>
-            <div className="advanced-playback" role="group" aria-label="播放控制">
+            <div
+              className="advanced-playback"
+              role="group"
+              aria-label={ui("播放控制", "Playback controls")}
+            >
               <button
                 className="advanced-play"
                 type="button"
@@ -2492,39 +2791,61 @@ export default function App() {
                 className="advanced-restart"
                 type="button"
                 onClick={restartPlayback}
-                aria-label="重新开始"
-                title="重新开始"
+                aria-label={ui("重新开始", "Restart")}
+                title={ui("重新开始", "Restart")}
                 disabled={recording || (!playing && !paused)}
               >
                 <RotateCcw />
-                <span>重新开始</span>
+                <span>{ui("重新开始", "Restart")}</span>
               </button>
             </div>
             <button
               className="advanced-tap"
               type="button"
               onClick={tapTempo}
-              aria-label="Tap 测速"
+              aria-label={ui("Tap 测速", "Tap tempo")}
               aria-keyshortcuts="T"
               disabled={recording}
             >
               <Hand />
-              <span>Tap</span>
+              <span>{ui("测速", "Tap")}</span>
             </button>
           </div>
 
           <div className="setting-block quick-composer">
             <div className="quick-group">
-              <span className="quick-caption">细分</span>
-              <div className="rhythm-preset-grid" role="group" aria-label="细分">
+              <span className="quick-caption">{ui("细分", "Subdivision")}</span>
+              <div
+                className="rhythm-preset-grid"
+                role="group"
+                aria-label={ui("细分", "Subdivision")}
+              >
                 {QUICK_PATTERNS.map((option) => (
                   <button
                     key={option.id}
                     type="button"
                     className={quickPattern === option.id ? "is-selected" : ""}
-                    aria-label={option.label}
+                    aria-label={ui(option.label, {
+                      beat: "Quarter notes",
+                      eighths: "Eighth notes",
+                      offbeat: "Offbeats",
+                      triplet: "Triplets",
+                      "triplet-rest-first": "Triplets · first rest",
+                      "triplet-rest-middle": "Triplets · middle rest",
+                      "triplet-rest-last": "Triplets · last rest",
+                      sixteenths: "Sixteenth notes",
+                    }[option.id])}
                     aria-pressed={quickPattern === option.id}
-                    title={option.label}
+                    title={ui(option.label, {
+                      beat: "Quarter notes",
+                      eighths: "Eighth notes",
+                      offbeat: "Offbeats",
+                      triplet: "Triplets",
+                      "triplet-rest-first": "Triplets · first rest",
+                      "triplet-rest-middle": "Triplets · middle rest",
+                      "triplet-rest-last": "Triplets · last rest",
+                      sixteenths: "Sixteenth notes",
+                    }[option.id])}
                     onClick={() => changeQuickPattern(option)}
                   >
                     <RhythmPatternGlyph steps={option.steps} beatUnit={4} />
@@ -2534,10 +2855,10 @@ export default function App() {
             </div>
 
             <div className="quick-group">
-              <span className="quick-caption">拍号</span>
-              <div className="meter-wheels" role="group" aria-label="拍号">
+              <span className="quick-caption">{ui("拍号", "Meter")}</span>
+              <div className="meter-wheels" role="group" aria-label={ui("拍号", "Meter")}>
                 <label>
-                  <span className="sr-only">当前小节拍数</span>
+                  <span className="sr-only">{ui("当前小节拍数", "Beats in current bar")}</span>
                   <select
                     value={editorBar.beats.length}
                     onChange={(event) => changeQuickMeter(Number(event.target.value))}
@@ -2549,7 +2870,7 @@ export default function App() {
                 </label>
                 <span aria-hidden="true">/</span>
                 <label>
-                  <span className="sr-only">拍号音符</span>
+                  <span className="sr-only">{ui("拍号音符", "Beat unit")}</span>
                   <select
                     value={settings.beatUnit}
                     onChange={(event) => changeQuickBeatUnit(Number(event.target.value))}
@@ -2573,58 +2894,67 @@ export default function App() {
               aria-pressed={settings.distinguishOffbeats && quickHasOffbeats}
               disabled={!quickHasOffbeats}
             >
-              正反拍音色区分
+              {ui("正反拍音色区分", "Differentiate offbeat sound")}
             </button>
           </div>
 
           <div
             className="gap-click track-controls"
             role="group"
-            aria-label="播放控制"
+            aria-label={ui("播放控制", "Playback controls")}
           >
             <button
               className={settings.beatTrack ? "is-active" : ""}
               type="button"
               onClick={() => updateSettings({ beatTrack: !settings.beatTrack })}
               aria-pressed={settings.beatTrack}
-              title="每拍固定响一次，第一拍重音"
+              title={ui(
+                "每拍固定响一次，第一拍重音",
+                "Sound once per beat, with an accent on the first beat",
+              )}
             >
               <i className="beat-track-mark" aria-hidden="true" />
-              <span>节拍</span>
+              <span>{ui("节拍", "Beat")}</span>
             </button>
             <button
               className={settings.rhythmTrack ? "is-active" : ""}
               type="button"
               onClick={() => updateSettings({ rhythmTrack: !settings.rhythmTrack })}
               aria-pressed={settings.rhythmTrack}
-              title="只在实际弹奏的音符起点响"
+              title={ui(
+                "只在实际弹奏的音符起点响",
+                "Sound only when a played note begins",
+              )}
             >
               <i className="rhythm-track-mark" aria-hidden="true" />
-              <span>节奏</span>
+              <span>{ui("节奏", "Rhythm")}</span>
             </button>
             <button
               className={settings.countIn ? "is-active" : ""}
               type="button"
               onClick={() => updateSettings({ countIn: !settings.countIn })}
               aria-pressed={settings.countIn}
-              title="开始前预备一小节"
+              title={ui("开始前预备一小节", "Count in for one bar before starting")}
             >
-              <span>Count-in</span>
+              <span>{ui("预备拍", "Count-in")}</span>
             </button>
             <button
               className={settings.gapClick ? "is-active" : ""}
               type="button"
               onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
               aria-pressed={settings.gapClick}
-              title="时间轴继续，仅随机关闭声音和节拍动画"
+              title={ui(
+                "时间轴继续，仅随机关闭声音和节拍动画",
+                "Keep the timeline running while randomly muting sound and beat animation",
+              )}
             >
               <VolumeX />
-              <span>随机空拍</span>
+              <span>{ui("随机空拍", "Random gaps")}</span>
             </button>
             <div
               className="gap-levels"
               role="group"
-              aria-label="随机空拍难度"
+              aria-label={ui("随机空拍难度", "Random gap difficulty")}
             >
               {GAP_DIFFICULTIES.map((option) => (
                 <button
@@ -2634,9 +2964,17 @@ export default function App() {
                   onClick={() => changeGapClick({ gapDifficulty: option.value })}
                   disabled={!settings.gapClick}
                   aria-pressed={settings.gapDifficulty === option.value}
-                  title={option.title}
+                  title={ui(option.title, {
+                    easy: "Sound for 3–5 bars, mute for 1 bar",
+                    medium: "Sound for 2–4 bars, mute for 1–2 bars",
+                    hard: "Sound for 1–3 bars, mute for 2–4 bars",
+                  }[option.value])}
                 >
-                  {option.label}
+                  {ui(option.label, {
+                    easy: "Easy",
+                    medium: "Medium",
+                    hard: "Hard",
+                  }[option.value])}
                 </button>
               ))}
             </div>
@@ -2644,13 +2982,13 @@ export default function App() {
 
           <div className="setting-block trainer-block">
             <div className="setting-label trainer-heading">
-              <span>自动变速</span>
+              <span>{ui("自动变速", "Tempo trainer")}</span>
               <label className="switch">
                 <input
                   type="checkbox"
                   checked={settings.trainer}
                   onChange={(event) => changeTrainer({ trainer: event.target.checked })}
-                  aria-label="自动变速"
+                  aria-label={ui("自动变速", "Tempo trainer")}
                 />
                 <span aria-hidden="true" />
               </label>
@@ -2658,7 +2996,7 @@ export default function App() {
             {settings.trainer && (
               <div className="trainer-grid">
                 <label>
-                  <span>起始</span>
+                  <span>{ui("起始", "Start")}</span>
                   <span className="field-with-unit">
                     <input
                       key={settings.startBpm}
@@ -2679,7 +3017,7 @@ export default function App() {
                   </span>
                 </label>
                 <label>
-                  <span>目标</span>
+                  <span>{ui("目标", "Target")}</span>
                   <span className="field-with-unit">
                     <input
                       key={settings.targetBpm}
@@ -2700,7 +3038,7 @@ export default function App() {
                   </span>
                 </label>
                 <label>
-                  <span>间隔</span>
+                  <span>{ui("间隔", "Interval")}</span>
                   <select
                     value={
                       settings.changeMode === "minute"
@@ -2718,14 +3056,14 @@ export default function App() {
                   >
                     {[1, 2, 4, 8, 16].map((bars) => (
                       <option key={bars} value={`bars-${bars}`}>
-                        {bars} 小节
+                        {ui(`${bars} 小节`, `${bars} ${bars === 1 ? "bar" : "bars"}`)}
                       </option>
                     ))}
-                    <option value="minute">每分钟</option>
+                    <option value="minute">{ui("每分钟", "Every minute")}</option>
                   </select>
                 </label>
                 <label>
-                  <span>步长</span>
+                  <span>{ui("步长", "Step")}</span>
                   <select
                     value={settings.changeAmount}
                     onChange={(event) => changeTrainer({ changeAmount: Number(event.target.value) })}
@@ -2744,8 +3082,13 @@ export default function App() {
           <div className="setting-block rhythm-block">
             <div className="advanced-section-heading">
               <span>
-                <strong>节奏编辑</strong>
-                <small>增减拍数、细分与重音</small>
+                <strong>{ui("节奏编辑", "Rhythm editor")}</strong>
+                <small>
+                  {ui(
+                    "增减拍数、细分与重音",
+                    "Add or remove beats, subdivisions, and accents",
+                  )}
+                </small>
               </span>
             </div>
             <div className="rhythm-toolbar">
@@ -2762,7 +3105,7 @@ export default function App() {
               <div
                 className="bar-pages"
                 role="tablist"
-                aria-label="小节"
+                aria-label={ui("小节", "Bars")}
                 aria-multiselectable={selectingBars || undefined}
               >
                 {settings.bars.map((_, index) => (
@@ -2784,7 +3127,7 @@ export default function App() {
                     aria-selected={
                       selectingBars ? selectedBarIndexes.includes(index) : index === editorBarIndex
                     }
-                    aria-label={`第 ${index + 1} 小节`}
+                    aria-label={ui(`第 ${index + 1} 小节`, `Bar ${index + 1}`)}
                   >
                     <i aria-hidden="true" />
                   </button>
@@ -2795,8 +3138,8 @@ export default function App() {
                 type="button"
                 onClick={() => deleteBars([editorBarIndex])}
                 disabled={settings.bars.length === 1}
-                aria-label="删除当前小节"
-                title="删除当前小节"
+                aria-label={ui("删除当前小节", "Delete current bar")}
+                title={ui("删除当前小节", "Delete current bar")}
               >
                 <Trash2 />
               </button>
@@ -2804,21 +3147,25 @@ export default function App() {
                 className="matrix-control"
                 type="button"
                 onClick={duplicateBar}
-                aria-label="复制当前小节"
-                title="复制当前小节"
+                aria-label={ui("复制当前小节", "Duplicate current bar")}
+                title={ui("复制当前小节", "Duplicate current bar")}
               >
                 <Plus />
               </button>
             </div>
 
-            <div className="bar-actions" role="group" aria-label="小节编辑">
+            <div
+              className="bar-actions"
+              role="group"
+              aria-label={ui("小节编辑", "Bar editing")}
+            >
               <button
                 className="matrix-icon-button"
                 type="button"
                 onClick={() => travelHistory("undo")}
                 disabled={!historyDepth.undo}
-                aria-label="撤销最近的节奏修改"
-                title="撤销"
+                aria-label={ui("撤销最近的节奏修改", "Undo latest rhythm change")}
+                title={ui("撤销", "Undo")}
               >
                 <Undo2 />
               </button>
@@ -2827,8 +3174,8 @@ export default function App() {
                 type="button"
                 onClick={() => travelHistory("redo")}
                 disabled={!historyDepth.redo}
-                aria-label="重做最近撤销的节奏修改"
-                title="重做"
+                aria-label={ui("重做最近撤销的节奏修改", "Redo latest rhythm change")}
+                title={ui("重做", "Redo")}
               >
                 <Redo2 />
               </button>
@@ -2836,9 +3183,17 @@ export default function App() {
                 className={`matrix-icon-button ${selectingBars ? "is-active" : ""}`}
                 type="button"
                 onClick={toggleBarSelection}
-                aria-label={selectingBars ? "退出多选" : "多选小节"}
+                aria-label={
+                  selectingBars
+                    ? ui("退出多选", "Exit multi-select")
+                    : ui("多选小节", "Select multiple bars")
+                }
                 aria-pressed={selectingBars}
-                title={selectingBars ? "退出多选" : "多选小节"}
+                title={
+                  selectingBars
+                    ? ui("退出多选", "Exit multi-select")
+                    : ui("多选小节", "Select multiple bars")
+                }
               >
                 <ListChecks />
               </button>
@@ -2847,8 +3202,8 @@ export default function App() {
                 type="button"
                 onClick={() => moveSelectedBars(-1)}
                 disabled={!canMoveBarsLeft}
-                aria-label="所选小节左移"
-                title="所选小节左移"
+                aria-label={ui("所选小节左移", "Move selected bars left")}
+                title={ui("所选小节左移", "Move selected bars left")}
               >
                 <ArrowLeft />
               </button>
@@ -2857,8 +3212,8 @@ export default function App() {
                 type="button"
                 onClick={() => moveSelectedBars(1)}
                 disabled={!canMoveBarsRight}
-                aria-label="所选小节右移"
-                title="所选小节右移"
+                aria-label={ui("所选小节右移", "Move selected bars right")}
+                title={ui("所选小节右移", "Move selected bars right")}
               >
                 <ArrowRight />
               </button>
@@ -2867,8 +3222,8 @@ export default function App() {
                 type="button"
                 onClick={() => deleteBars(activeBarIndexes)}
                 disabled={settings.bars.length === 1 || !activeBarIndexes.length}
-                aria-label="删除所选小节"
-                title="删除所选小节"
+                aria-label={ui("删除所选小节", "Delete selected bars")}
+                title={ui("删除所选小节", "Delete selected bars")}
               >
                 <Trash2 />
               </button>
@@ -2877,8 +3232,8 @@ export default function App() {
                 type="button"
                 onClick={copyBars}
                 disabled={!activeBarIndexes.length}
-                aria-label="复制所选小节"
-                title="复制所选小节"
+                aria-label={ui("复制所选小节", "Copy selected bars")}
+                title={ui("复制所选小节", "Copy selected bars")}
               >
                 <Copy />
               </button>
@@ -2887,8 +3242,8 @@ export default function App() {
                 type="button"
                 onClick={pasteBars}
                 disabled={!barClipboard.length}
-                aria-label="粘贴小节"
-                title="粘贴小节"
+                aria-label={ui("粘贴小节", "Paste bars")}
+                title={ui("粘贴小节", "Paste bars")}
               >
                 <ClipboardPaste />
               </button>
@@ -2909,8 +3264,8 @@ export default function App() {
                   type="button"
                   onClick={() => resizeBar(-1)}
                   disabled={editorBar.beats.length === 1}
-                  aria-label="减少一拍"
-                  title="减少一拍"
+                  aria-label={ui("减少一拍", "Remove one beat")}
+                  title={ui("减少一拍", "Remove one beat")}
                 >
                   <Minus />
                 </button>
@@ -2921,14 +3276,19 @@ export default function App() {
                       className="rhythm-column"
                       key={beatIndex}
                     >
-                      <legend className="sr-only">第 {beatIndex + 1} 拍</legend>
+                      <legend className="sr-only">
+                        {ui(`第 ${beatIndex + 1} 拍`, `Beat ${beatIndex + 1}`)}
+                      </legend>
                       <button
                         className="matrix-control subdivision-control"
                         type="button"
                         onClick={() => resizeBeat(beatIndex, 1)}
                         disabled={beat.steps.length === MAX_SUBDIVISION}
-                        aria-label={`增加第 ${beatIndex + 1} 拍的细分`}
-                        title="增加细分"
+                        aria-label={ui(
+                          `增加第 ${beatIndex + 1} 拍的细分`,
+                          `Increase subdivisions in beat ${beatIndex + 1}`,
+                        )}
+                        title={ui("增加细分", "Increase subdivisions")}
                       >
                         <Plus />
                       </button>
@@ -2936,7 +3296,11 @@ export default function App() {
                       <div className="matrix-track">
                         <div className="matrix-dot-track">
                           {beat.steps.map((step, sub) => {
-                            const stateName = step === 2 ? "强音" : step === 1 ? "普通" : "静音";
+                            const stateName = step === 2
+                              ? ui("强音", "Accent")
+                              : step === 1
+                                ? ui("普通", "Normal")
+                                : ui("静音", "Muted");
                             return (
                               <RhythmDot
                                 key={sub}
@@ -2958,8 +3322,14 @@ export default function App() {
                                 }}
                                 onPress={() => toggleStep(beatIndex, sub)}
                                 onHold={() => toggleStep(beatIndex, sub, true)}
-                                label={`第 ${beatIndex + 1} 拍第 ${sub + 1} 格：${stateName}`}
-                                title={`${stateName}；点击开关，长按切换强音`}
+                                label={ui(
+                                  `第 ${beatIndex + 1} 拍第 ${sub + 1} 格：${stateName}`,
+                                  `Beat ${beatIndex + 1}, step ${sub + 1}: ${stateName}`,
+                                )}
+                                title={ui(
+                                  `${stateName}；点击开关，长按切换强音`,
+                                  `${stateName}; click to toggle, hold to switch accent`,
+                                )}
                               />
                             );
                           })}
@@ -2971,8 +3341,11 @@ export default function App() {
                         type="button"
                         onClick={() => resizeBeat(beatIndex, -1)}
                         disabled={beat.steps.length === 1}
-                        aria-label={`减少第 ${beatIndex + 1} 拍的细分`}
-                        title="减少细分"
+                        aria-label={ui(
+                          `减少第 ${beatIndex + 1} 拍的细分`,
+                          `Decrease subdivisions in beat ${beatIndex + 1}`,
+                        )}
+                        title={ui("减少细分", "Decrease subdivisions")}
                       >
                         <Minus />
                       </button>
@@ -2986,15 +3359,18 @@ export default function App() {
                   type="button"
                   onClick={() => resizeBar(1)}
                   disabled={editorBar.beats.length === MAX_BEATS}
-                  aria-label="复制上一拍"
-                  title="复制上一拍"
+                  aria-label={ui("复制上一拍", "Duplicate previous beat")}
+                  title={ui("复制上一拍", "Duplicate previous beat")}
                 >
                   <Plus />
                 </button>
               </div>
             </div>
 
-            <div className="bar-overview" aria-label="全部小节预览">
+            <div
+              className="bar-overview"
+              aria-label={ui("全部小节预览", "All bars overview")}
+            >
               {settings.bars.map((bar, barIndex) => (
                 <button
                   key={barIndex}
@@ -3011,7 +3387,10 @@ export default function App() {
                     .join(" ")}
                   type="button"
                   onClick={(event) => selectBar(barIndex, event)}
-                  aria-label={`第 ${barIndex + 1} 小节预览`}
+                  aria-label={ui(
+                    `第 ${barIndex + 1} 小节预览`,
+                    `Bar ${barIndex + 1} preview`,
+                  )}
                 >
                   <span
                     className="bar-preview-beats"
@@ -3051,9 +3430,9 @@ export default function App() {
 
           <div className="setting-block sound-block">
             <div className="setting-label">
-              <span>音色</span>
+              <span>{ui("音色", "Sound")}</span>
             </div>
-            <div className="sound-grid" aria-label="节拍音色">
+            <div className="sound-grid" aria-label={ui("节拍音色", "Metronome sound")}>
               {SOUNDS.map((sound) => (
                 <button
                   key={sound.value}
@@ -3063,7 +3442,14 @@ export default function App() {
                   onClick={() => updateSettings({ sound: sound.value })}
                 >
                   <i className={`sound-mark sound-${sound.value}`} aria-hidden="true" />
-                  <span>{sound.label}</span>
+                  <span>
+                    {ui(sound.label, {
+                      click: "Crisp",
+                      wood: "Woodblock",
+                      drum: "Drum",
+                      soft: "Soft",
+                    }[sound.value])}
+                  </span>
                 </button>
               ))}
             </div>
@@ -3071,15 +3457,17 @@ export default function App() {
 
           <div className="setting-block volume-block">
             <div className="setting-label">
-              <span>音量</span>
-              <small>{settings.muted ? "静音" : `${settings.volume}%`}</small>
+              <span>{ui("音量", "Volume")}</span>
+              <small>{settings.muted ? ui("静音", "Muted") : `${settings.volume}%`}</small>
             </div>
             <div className="volume-control">
               <button
                 className="volume-button"
                 type="button"
                 onClick={() => updateSettings({ muted: !settings.muted })}
-                aria-label={settings.muted ? "取消静音" : "静音"}
+                aria-label={
+                  settings.muted ? ui("取消静音", "Unmute") : ui("静音", "Mute")
+                }
                 aria-pressed={settings.muted}
               >
                 {settings.muted ? <VolumeX /> : <Volume2 />}
@@ -3092,7 +3480,7 @@ export default function App() {
                 onChange={(event) =>
                   updateSettings({ volume: Number(event.target.value), muted: false })
                 }
-                aria-label="节拍音量"
+                aria-label={ui("节拍音量", "Metronome volume")}
                 style={{ "--range-progress": `${settings.volume}%` }}
               />
             </div>
@@ -3101,8 +3489,13 @@ export default function App() {
           <div className="setting-block analysis-setting">
             <div className="setting-label analysis-setting-heading">
               <span>
-                <strong>录音分析</strong>
-                <small>对比当前高级节奏，记录练习进步</small>
+                <strong>{ui("录音分析", "Recording analysis")}</strong>
+                <small>
+                  {ui(
+                    "对比当前高级节奏，记录练习进步",
+                    "Compare with the current advanced rhythm and track your progress",
+                  )}
+                </small>
               </span>
               <label className="switch">
                 <input
@@ -3112,19 +3505,29 @@ export default function App() {
                     updateSettings({ rhythmAnalysis: event.target.checked })
                   }
                   disabled={recording}
-                  aria-label="录音分析"
+                  aria-label={ui("录音分析", "Recording analysis")}
                 />
                 <span aria-hidden="true" />
               </label>
             </div>
 
             {settings.rhythmAnalysis && (
-              <section className="practice-analysis" aria-label="节奏录音分析">
+              <section
+                className="practice-analysis"
+                aria-label={ui("节奏录音分析", "Rhythm recording analysis")}
+              >
                 <p className="analysis-warning" role="note">
-                  测试中 · 当前功能仍不稳定，暂不建议使用
+                  {ui(
+                    "测试中 · 当前功能仍不稳定，暂不建议使用",
+                    "Experimental · This feature is still unstable and not recommended yet",
+                  )}
                 </p>
                 <div className="practice-analysis-heading">
-                  <div className="analysis-mode" role="group" aria-label="节奏播放方式">
+                  <div
+                    className="analysis-mode"
+                    role="group"
+                    aria-label={ui("节奏播放方式", "Rhythm playback mode")}
+                  >
                     <button
                       className={!settings.analysisLoop ? "is-selected" : ""}
                       type="button"
@@ -3132,7 +3535,7 @@ export default function App() {
                       disabled={recording}
                       aria-pressed={!settings.analysisLoop}
                     >
-                      播放一遍
+                      {ui("播放一遍", "Play once")}
                     </button>
                     <button
                       className={settings.analysisLoop ? "is-selected" : ""}
@@ -3141,7 +3544,7 @@ export default function App() {
                       disabled={recording}
                       aria-pressed={settings.analysisLoop}
                     >
-                      循环播放
+                      {ui("循环播放", "Loop")}
                     </button>
                   </div>
                   <button
@@ -3150,12 +3553,14 @@ export default function App() {
                     onClick={recording ? finishPracticeRecording : beginPracticeRecording}
                   >
                     {recording ? <Square fill="currentColor" /> : <Mic />}
-                    {recording ? "停止并分析" : "开始录音"}
+                    {recording
+                      ? ui("停止并分析", "Stop and analyze")
+                      : ui("开始录音", "Start recording")}
                   </button>
                   {recordingAudio && !recording && (
                     <button className="record-button" type="button" onClick={exportPracticeAudio}>
                       <Download />
-                      导出录音
+                      {ui("导出录音", "Export recording")}
                     </button>
                   )}
                 </div>
@@ -3164,54 +3569,109 @@ export default function App() {
                   <>
                     <div className="analysis-result-heading">
                       <span>
-                        <strong>本次结果</strong>
-                        <small>{analysis.expectedCount} 个节奏基准点</small>
+                        <strong>{ui("本次结果", "This result")}</strong>
+                        <small>
+                          {ui(
+                            `${analysis.expectedCount} 个节奏基准点`,
+                            `${analysis.expectedCount} rhythm reference ${
+                              analysis.expectedCount === 1 ? "point" : "points"
+                            }`,
+                          )}
+                        </small>
                       </span>
                     </div>
                     <div className="analysis-stats">
-                      <span><strong>{analysis.stableRate}%</strong><small>稳定率</small></span>
-                      <span><strong>{Math.round(analysis.meanAbsMs)}ms</strong><small>平均误差</small></span>
+                      <span>
+                        <strong>{analysis.stableRate}%</strong>
+                        <small>{ui("稳定率", "Stability")}</small>
+                      </span>
+                      <span>
+                        <strong>{Math.round(analysis.meanAbsMs)}ms</strong>
+                        <small>{ui("平均误差", "Mean error")}</small>
+                      </span>
                       <span>
                         <strong>{analysis.actualBpm ? Math.round(analysis.actualBpm) : "—"}</strong>
-                        <small>实际 BPM</small>
+                        <small>{ui("实际 BPM", "Actual BPM")}</small>
                       </span>
                       <span>
                         <strong>{analysis.missed} / {analysis.extra}</strong>
-                        <small>漏弹 / 多弹</small>
+                        <small>{ui("漏弹 / 多弹", "Missed / Extra")}</small>
                       </span>
                     </div>
-                    <HistoryComparison current={analysis.record} history={visibleHistory} />
-                    <TimingThumbnail analysis={analysis} />
-                    <div className="timing-legend" aria-label="缩略图图例">
-                      <span className="is-steady">准确 {analysis.onTime}</span>
-                      <span className="is-early">偏快 {analysis.early}</span>
-                      <span className="is-late">偏慢 {analysis.late}</span>
-                      <span className="is-missed">漏弹 {analysis.missed}</span>
-                      <span className="is-extra">多弹 {analysis.extra}</span>
+                    <HistoryComparison
+                      current={analysis.record}
+                      history={visibleHistory}
+                      isEnglish={isEnglish}
+                    />
+                    <TimingThumbnail analysis={analysis} isEnglish={isEnglish} />
+                    <div
+                      className="timing-legend"
+                      aria-label={ui("缩略图图例", "Timing thumbnail legend")}
+                    >
+                      <span className="is-steady">
+                        {ui(`准确 ${analysis.onTime}`, `On time ${analysis.onTime}`)}
+                      </span>
+                      <span className="is-early">
+                        {ui(`偏快 ${analysis.early}`, `Early ${analysis.early}`)}
+                      </span>
+                      <span className="is-late">
+                        {ui(`偏慢 ${analysis.late}`, `Late ${analysis.late}`)}
+                      </span>
+                      <span className="is-missed">
+                        {ui(`漏弹 ${analysis.missed}`, `Missed ${analysis.missed}`)}
+                      </span>
+                      <span className="is-extra">
+                        {ui(`多弹 ${analysis.extra}`, `Extra ${analysis.extra}`)}
+                      </span>
                     </div>
-                    <TimingBreakdown analysis={analysis} />
+                    <TimingBreakdown analysis={analysis} isEnglish={isEnglish} />
                     <p className="analysis-note">
-                      已自动校正固定延迟 {Math.round(analysis.calibrationMs)}ms，允许误差 ±{Math.round(analysis.toleranceMs)}ms。
+                      {ui(
+                        `已自动校正固定延迟 ${Math.round(
+                          analysis.calibrationMs,
+                        )}ms，允许误差 ±${Math.round(analysis.toleranceMs)}ms。`,
+                        `Fixed latency of ${Math.round(
+                          analysis.calibrationMs,
+                        )}ms was corrected automatically; tolerance ±${Math.round(
+                          analysis.toleranceMs,
+                        )}ms.`,
+                      )}
                     </p>
                   </>
                 ) : (
                   <p className="analysis-empty">
-                    一小节预备拍后开始；{settings.analysisLoop
-                      ? "循环播放至手动停止，最长 2 分钟。"
-                      : "播放当前节奏一遍后自动分析。"}
+                    {ui(
+                      `一小节预备拍后开始；${
+                        settings.analysisLoop
+                          ? "循环播放至手动停止，最长 2 分钟。"
+                          : "播放当前节奏一遍后自动分析。"
+                      }`,
+                      `Starts after a one-bar count-in; ${
+                        settings.analysisLoop
+                          ? "loops until stopped manually, for up to 2 minutes."
+                          : "plays the current rhythm once, then analyzes it automatically."
+                      }`,
+                    )}
                   </p>
                 )}
-                {!analysis && <HistoryComparison current={null} history={visibleHistory} />}
+                {!analysis && (
+                  <HistoryComparison
+                    current={null}
+                    history={visibleHistory}
+                    isEnglish={isEnglish}
+                  />
+                )}
               </section>
             )}
           </div>
 
+          </div>
         </aside>
       </main>
       {toast && (
         <div className="status-toast" key={toast.id} role="status" aria-live="polite">
           <Activity aria-hidden="true" />
-          <span>{toast.message}</span>
+          <span>{localizeStatus(toast.message, isEnglish)}</span>
         </div>
       )}
       <dialog
@@ -3227,16 +3687,16 @@ export default function App() {
           className="dialog-close"
           type="button"
           onClick={() => setShowRhythmCode(false)}
-          aria-label="关闭"
+          aria-label={ui("关闭", "Close")}
         >
           <X />
         </button>
-        <h2 id="rhythm-code-title">节奏编码</h2>
+        <h2 id="rhythm-code-title">{ui("节奏编码", "Rhythm code")}</h2>
         <textarea
           value={rhythmCode}
           onChange={(event) => setRhythmCode(event.target.value.trim())}
-          placeholder="粘贴节奏编码"
-          aria-label="节奏编码"
+          placeholder={ui("粘贴节奏编码", "Paste rhythm code")}
+          aria-label={ui("节奏编码", "Rhythm code")}
           autoFocus
           spellCheck="false"
         />
@@ -3255,15 +3715,15 @@ export default function App() {
             disabled={!rhythmCode}
           >
             <Copy />
-            复制
+            {ui("复制", "Copy")}
           </button>
           <button type="button" onClick={importRhythm} disabled={!rhythmCode}>
             <ClipboardPaste />
-            导入
+            {ui("导入", "Import")}
           </button>
         </div>
         <label className="musicxml-import">
-          <span>或导入 MusicXML 乐谱</span>
+          <span>{ui("或导入 MusicXML 乐谱", "Or import a MusicXML score")}</span>
           <input
             type="file"
             accept=".musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml"
@@ -3284,28 +3744,36 @@ export default function App() {
           className="dialog-close"
           type="button"
           onClick={() => setShowInstallHelp(false)}
-          aria-label="关闭"
+          aria-label={ui("关闭", "Close")}
         >
           <X />
         </button>
         <span className="dialog-icon" aria-hidden="true">
           <Download />
         </span>
-        <h2 id="install-title">添加 Pulse 到桌面</h2>
+        <h2 id="install-title">
+          {ui("添加 KESSOKU BEAT 到桌面", "Add KESSOKU BEAT to your home screen")}
+        </h2>
         {isIOS ? (
           <ol className="install-steps">
             <li>
-              点击 Safari 的 <Share2 aria-hidden="true" /> 分享
+              {ui("点击 Safari 的", "Tap Safari's")} <Share2 aria-hidden="true" />{" "}
+              {ui("分享", "Share button")}
             </li>
-            <li>选择“添加到主屏幕”</li>
-            <li>开启“打开为 Web App”</li>
-            <li>点击“添加”</li>
+            <li>{ui("选择“添加到主屏幕”", "Choose “Add to Home Screen”")}</li>
+            <li>{ui("开启“打开为 Web App”", "Turn on “Open as Web App”")}</li>
+            <li>{ui("点击“添加”", "Tap “Add”")}</li>
           </ol>
         ) : (
-          <p>打开浏览器菜单，选择“安装应用”或“添加到主屏幕”。</p>
+          <p>
+            {ui(
+              "打开浏览器菜单，选择“安装应用”或“添加到主屏幕”。",
+              "Open your browser menu, then choose “Install app” or “Add to Home Screen”.",
+            )}
+          </p>
         )}
         <button className="dialog-done" type="button" onClick={() => setShowInstallHelp(false)}>
-          知道了
+          {ui("知道了", "Got it")}
         </button>
       </dialog>
     </div>

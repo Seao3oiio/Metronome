@@ -1,4 +1,4 @@
-# Pulse 节拍器
+# KESSOKU BEAT
 
 面向 PC、iPad 和手机的响应式练习节拍器。使用 Tone.js 的 Web Audio 时钟提供稳定节拍，设置会自动保存在当前浏览器。
 
