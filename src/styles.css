@@ -371,7 +371,7 @@ input[type="range"]::-moz-range-thumb {
 
 .quick-settings-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(250px, 0.75fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.72fr) minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
 }
@@ -830,14 +830,6 @@ input[type="range"]::-moz-range-thumb {
   font-size: 11px;
 }
 
-.rhythm-toolbar {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  justify-content: flex-end;
-  margin: 2px 0 8px;
-}
-
 .matrix-icon-button,
 .matrix-control,
 .rhythm-dot {
@@ -887,7 +879,7 @@ input[type="range"]::-moz-range-thumb {
 
 .bar-actions {
   display: grid;
-  grid-template-columns: repeat(8, 44px);
+  grid-template-columns: repeat(11, 44px);
   margin-top: 2px;
   justify-content: center;
   gap: 4px;
@@ -2120,6 +2112,7 @@ body::before {
 }
 
 .stage-banner,
+.stage-copy,
 .stage-stats {
   position: absolute;
 }
@@ -2133,12 +2126,44 @@ body::before {
   object-fit: cover;
 }
 
+.stage-copy {
+  top: 19%;
+  left: 4.5%;
+  z-index: 4;
+  display: grid;
+  gap: 18px;
+  justify-items: start;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.stage-copy strong {
+  font-family: "Arial Black", Impact, "Kessoku Cute", sans-serif;
+  font-size: clamp(34px, 5.8vw, 72px);
+  font-weight: 900;
+  line-height: 0.86;
+  letter-spacing: -0.075em;
+  text-shadow: 5px 5px 0 var(--member-hot);
+  transform: skew(-6deg);
+}
+
+.stage-copy span {
+  padding: 7px 22px 8px;
+  border: 3px solid var(--ink);
+  background: var(--band-yellow);
+  box-shadow: 8px 8px 0 var(--band-blue);
+  font-family: "Kessoku Cute", "Hannotate SC", sans-serif;
+  font-size: clamp(20px, 2.8vw, 34px);
+  line-height: 1;
+  rotate: -2deg;
+}
+
 [data-visual-style="poster"] .advanced-rhythm-card {
   grid-template-columns: minmax(0, 1fr);
 }
 
 [data-visual-style="poster"] .theme-stage {
-  aspect-ratio: 40 / 21;
+  aspect-ratio: 5 / 2;
   border-radius: 15px;
 }
 
@@ -2234,7 +2259,7 @@ body::before {
   top: 18px;
   grid-row: 1;
   grid-column: 2;
-  aspect-ratio: 40 / 21;
+  aspect-ratio: 5 / 2;
   min-height: 0;
   border-width: 3px;
   border-radius: 15px;
@@ -2245,6 +2270,23 @@ body::before {
 [data-visual-style="notebook"] .stage-stats > span {
   border-width: 2px;
   box-shadow: 3px 3px 0 var(--ink);
+}
+
+[data-visual-style="notebook"] .stage-copy {
+  top: 13%;
+  gap: 7px;
+}
+
+[data-visual-style="notebook"] .stage-copy strong {
+  font-size: clamp(19px, 2.35vw, 32px);
+  text-shadow: 3px 3px 0 var(--member-hot);
+}
+
+[data-visual-style="notebook"] .stage-copy span {
+  padding: 4px 10px 5px;
+  border-width: 2px;
+  box-shadow: 4px 4px 0 var(--band-blue);
+  font-size: clamp(13px, 1.5vw, 19px);
 }
 
 .settings-heading {
@@ -2378,6 +2420,7 @@ body::before {
 
 .quick-composer,
 .audio-control-block,
+.playback-options-block,
 .trainer-block {
   margin-top: 18px;
   padding: 18px;
@@ -2452,10 +2495,6 @@ body::before {
   border-bottom: 2px dashed rgba(37, 25, 34, 0.3);
 }
 
-.rhythm-toolbar {
-  padding-right: 2px;
-}
-
 .bar-preview {
   border: 2px solid var(--ink);
   background: #fff;
@@ -2493,15 +2532,15 @@ body::before {
   border-radius: 10px;
 }
 
-.rhythm-toolbar .matrix-icon-button:nth-child(1) {
+.bar-loop-action {
   background: var(--member-soft);
 }
 
-.rhythm-toolbar .matrix-control:nth-child(2) {
+.bar-delete-action {
   background: #ffe0e6;
 }
 
-.rhythm-toolbar .matrix-control:nth-child(3) {
+.bar-duplicate-action {
   background: var(--band-blue);
 }
 
@@ -2769,6 +2808,49 @@ input[type="range"]::-webkit-slider-thumb {
 
   .stage-stats strong {
     font-size: 31px;
+  }
+
+  .stage-copy {
+    top: 11%;
+    left: 5%;
+    gap: 7px;
+  }
+
+  .stage-copy strong {
+    font-size: 29px;
+    text-shadow: 3px 3px 0 var(--member-hot);
+  }
+
+  .stage-copy span {
+    padding: 3px 9px 4px;
+    border-width: 2px;
+    box-shadow: 4px 4px 0 var(--band-blue);
+    font-size: 14px;
+  }
+
+  .stage-stats {
+    right: 7px;
+    bottom: 7px;
+    left: 7px;
+    gap: 4px;
+  }
+
+  .stage-stats > span {
+    min-width: 58px;
+    min-height: 42px;
+    padding: 4px 6px;
+    border-width: 2px;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+
+  .stage-stats strong {
+    font-size: 25px;
+  }
+
+  .stage-beat-lights {
+    width: min(120px, 36%) !important;
+    min-height: 42px !important;
+    gap: 5px;
   }
 
   .quick-composer,

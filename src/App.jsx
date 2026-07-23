@@ -1992,7 +1992,7 @@ export default function App() {
       ? ui("继续", "Resume")
       : ui("开始", "Start");
   const displayStatus = localizeStatus(status, isEnglish);
-  const themeBannerUrl = `${import.meta.env.BASE_URL}kessoku-beat-hitori-social.png`;
+  const themeBannerUrl = `${import.meta.env.BASE_URL}kessoku-beat-hitori-banner.webp`;
 
   return (
     <div
@@ -2087,6 +2087,10 @@ export default function App() {
             <figure className="stage-banner">
               <img src={themeBannerUrl} alt={`KESSOKU BEAT · ${selectedTheme.label}`} />
             </figure>
+            <div className="stage-copy" aria-hidden="true">
+              <strong>KESSOKU BEAT</strong>
+              <span>{selectedTheme.label}</span>
+            </div>
             <div className="stage-stats">
               <span>
                 <strong>{settings.bpm}</strong>
@@ -2341,88 +2345,87 @@ export default function App() {
                 />
               </div>
             </div>
-          </div>
-
-          <div
-            className="gap-click track-controls"
-            role="group"
-            aria-label={ui("播放控制", "Playback controls")}
-          >
-            <button
-              className={`track-toggle track-count-in ${settings.countIn ? "is-active" : ""}`}
-              type="button"
-              onClick={() => updateSettings({ countIn: !settings.countIn })}
-              aria-pressed={settings.countIn}
-              title={ui("开始前预备一小节", "Count in for one bar before starting")}
+            <div
+              className="setting-block gap-click track-controls playback-options-block"
+              role="group"
+              aria-label={ui("播放控制", "Playback controls")}
             >
-              <span>{ui("预备拍", "Count-in")}</span>
-            </button>
-            <button
-              className={`track-toggle track-beat ${settings.beatTrack ? "is-active" : ""}`}
-              type="button"
-              onClick={() => updateSettings({ beatTrack: !settings.beatTrack })}
-              aria-pressed={settings.beatTrack}
-              title={ui(
-                "每拍固定响一次，第一拍重音",
-                "Sound once per beat, with an accent on the first beat",
-              )}
-            >
-              <i className="beat-track-mark" aria-hidden="true" />
-              <span>{ui("节拍", "Beat")}</span>
-            </button>
-            <button
-              className={`track-toggle track-rhythm ${settings.rhythmTrack ? "is-active" : ""}`}
-              type="button"
-              onClick={() => updateSettings({ rhythmTrack: !settings.rhythmTrack })}
-              aria-pressed={settings.rhythmTrack}
-              title={ui(
-                "只在实际弹奏的音符起点响",
-                "Sound only when a played note begins",
-              )}
-            >
-              <i className="rhythm-track-mark" aria-hidden="true" />
-              <span>{ui("节奏", "Rhythm")}</span>
-            </button>
-            <div className="gap-row">
               <button
-                className={settings.gapClick ? "is-active" : ""}
+                className={`track-toggle track-count-in ${settings.countIn ? "is-active" : ""}`}
                 type="button"
-                onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
-                aria-pressed={settings.gapClick}
+                onClick={() => updateSettings({ countIn: !settings.countIn })}
+                aria-pressed={settings.countIn}
+                title={ui("开始前预备一小节", "Count in for one bar before starting")}
+              >
+                <span>{ui("预备拍", "Count-in")}</span>
+              </button>
+              <button
+                className={`track-toggle track-beat ${settings.beatTrack ? "is-active" : ""}`}
+                type="button"
+                onClick={() => updateSettings({ beatTrack: !settings.beatTrack })}
+                aria-pressed={settings.beatTrack}
                 title={ui(
-                  "时间轴继续，仅随机关闭声音和节拍动画",
-                  "Keep the timeline running while randomly muting sound and beat animation",
+                  "每拍固定响一次，第一拍重音",
+                  "Sound once per beat, with an accent on the first beat",
                 )}
               >
-                <VolumeX />
-                <span>{ui("随机空拍", "Random gaps")}</span>
+                <i className="beat-track-mark" aria-hidden="true" />
+                <span>{ui("节拍", "Beat")}</span>
               </button>
-              <div
-                className="gap-levels"
-                role="group"
-                aria-label={ui("随机空拍难度", "Random gap difficulty")}
+              <button
+                className={`track-toggle track-rhythm ${settings.rhythmTrack ? "is-active" : ""}`}
+                type="button"
+                onClick={() => updateSettings({ rhythmTrack: !settings.rhythmTrack })}
+                aria-pressed={settings.rhythmTrack}
+                title={ui(
+                  "只在实际弹奏的音符起点响",
+                  "Sound only when a played note begins",
+                )}
               >
-                {GAP_DIFFICULTIES.map((option) => (
-                  <button
-                    key={option.value}
-                    className={settings.gapDifficulty === option.value ? "is-selected" : ""}
-                    type="button"
-                    onClick={() => changeGapClick({ gapDifficulty: option.value })}
-                    disabled={!settings.gapClick}
-                    aria-pressed={settings.gapDifficulty === option.value}
-                    title={ui(option.title, {
-                      easy: "Sound for 3–5 bars, mute for 1 bar",
-                      medium: "Sound for 2–4 bars, mute for 1–2 bars",
-                      hard: "Sound for 1–3 bars, mute for 2–4 bars",
-                    }[option.value])}
-                  >
-                    {ui(option.label, {
-                      easy: "Easy",
-                      medium: "Medium",
-                      hard: "Hard",
-                    }[option.value])}
-                  </button>
-                ))}
+                <i className="rhythm-track-mark" aria-hidden="true" />
+                <span>{ui("节奏", "Rhythm")}</span>
+              </button>
+              <div className="gap-row">
+                <button
+                  className={settings.gapClick ? "is-active" : ""}
+                  type="button"
+                  onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
+                  aria-pressed={settings.gapClick}
+                  title={ui(
+                    "时间轴继续，仅随机关闭声音和节拍动画",
+                    "Keep the timeline running while randomly muting sound and beat animation",
+                  )}
+                >
+                  <VolumeX />
+                  <span>{ui("随机空拍", "Random gaps")}</span>
+                </button>
+                <div
+                  className="gap-levels"
+                  role="group"
+                  aria-label={ui("随机空拍难度", "Random gap difficulty")}
+                >
+                  {GAP_DIFFICULTIES.map((option) => (
+                    <button
+                      key={option.value}
+                      className={settings.gapDifficulty === option.value ? "is-selected" : ""}
+                      type="button"
+                      onClick={() => changeGapClick({ gapDifficulty: option.value })}
+                      disabled={!settings.gapClick}
+                      aria-pressed={settings.gapDifficulty === option.value}
+                      title={ui(option.title, {
+                        easy: "Sound for 3–5 bars, mute for 1 bar",
+                        medium: "Sound for 2–4 bars, mute for 1–2 bars",
+                        hard: "Sound for 1–3 bars, mute for 2–4 bars",
+                      }[option.value])}
+                    >
+                      {ui(option.label, {
+                        easy: "Easy",
+                        medium: "Medium",
+                        hard: "Hard",
+                      }[option.value])}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -2616,9 +2619,18 @@ export default function App() {
                 <span>{ui("导入", "Import")}</span>
               </button>
             </div>
-            <div className="rhythm-toolbar">
+            <div
+              className="bar-actions"
+              role="group"
+              aria-label={ui("小节编辑", "Bar editing")}
+            >
               <button
-                className={`matrix-icon-button ${settings.loopBar !== null ? "is-active" : ""}`}
+                className={[
+                  "matrix-icon-button bar-loop-action",
+                  settings.loopBar !== null ? "is-active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 type="button"
                 onClick={toggleBarLoop}
                 aria-label={loopActionLabel}
@@ -2628,7 +2640,7 @@ export default function App() {
                 <Repeat2 />
               </button>
               <button
-                className="matrix-control"
+                className="matrix-icon-button bar-delete-action"
                 type="button"
                 onClick={() => deleteBars([editorBarIndex])}
                 disabled={settings.bars.length === 1}
@@ -2638,7 +2650,7 @@ export default function App() {
                 <Trash2 />
               </button>
               <button
-                className="matrix-control"
+                className="matrix-icon-button bar-duplicate-action"
                 type="button"
                 onClick={duplicateBar}
                 aria-label={ui("复制当前小节", "Duplicate current bar")}
@@ -2646,13 +2658,6 @@ export default function App() {
               >
                 <Plus />
               </button>
-            </div>
-
-            <div
-              className="bar-actions"
-              role="group"
-              aria-label={ui("小节编辑", "Bar editing")}
-            >
               <button
                 className="matrix-icon-button"
                 type="button"
