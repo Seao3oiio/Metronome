@@ -388,12 +388,24 @@ input[type="range"]::-moz-range-thumb {
 .quick-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 142px;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 8px 14px;
-  align-items: end;
+  align-items: stretch;
 }
 
 .quick-composer > .quick-group:first-child {
+  grid-column: 1;
   grid-row: 1 / span 2;
+}
+
+.quick-composer > .quick-group:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.quick-composer > .quick-toggle {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .quick-group {
@@ -1538,12 +1550,19 @@ footer {
 @media (max-width: 560px) {
   .quick-composer {
     grid-template-columns: minmax(116px, 1fr) minmax(80px, 0.8fr);
+    grid-template-rows: auto;
     gap: 10px;
   }
 
   .quick-composer > .quick-group:first-child {
     grid-row: auto;
     grid-column: 1 / -1;
+  }
+
+  .quick-composer > .quick-group:nth-child(2),
+  .quick-composer > .quick-toggle {
+    grid-row: auto;
+    grid-column: auto;
   }
 
   .meter-wheels select {
@@ -1831,8 +1850,8 @@ body::before {
   width: min(1460px, 100%);
   color: var(--ink);
   font-family:
-    ui-rounded, "Yuanti SC", "Hiragino Maru Gothic ProN", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
+    "Kessoku Cute", ui-rounded, "Yuanti SC", "Hiragino Maru Gothic ProN",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 .app-shell button,
@@ -1840,6 +1859,10 @@ body::before {
 .app-shell select,
 .app-shell textarea {
   font-family: inherit;
+}
+
+.app-shell .rhythm-code-dialog textarea {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .app-shell button:focus-visible,
@@ -2448,6 +2471,13 @@ body::before {
 .gap-row > button.is-active,
 .gap-levels button.is-selected,
 .sound-grid button.is-selected {
+  border-color: var(--ink);
+  background: var(--member-soft);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--member);
+}
+
+.track-controls > .track-rhythm.is-active {
   border-color: var(--ink);
   background: var(--member-soft);
   color: var(--ink);
