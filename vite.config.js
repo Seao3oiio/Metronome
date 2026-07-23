@@ -23,6 +23,7 @@ export default defineConfig({
         "icon.svg",
         "apple-touch-icon.png",
         "Bravura-OFL.txt",
+        "kessoku-beat-hitori-banner.webp",
         "kessoku-beat-hitori-social.png",
         "ZCOOL-KuaiLe-OFL.txt",
       ],
