@@ -951,11 +951,11 @@ export default function App() {
         replaceSettings({ ...settingsRef.current, bpm });
       }
 
-      const gapPattern = practice ? [] : makeActiveGapPattern(settingsRef.current);
+      const gapPattern = makeActiveGapPattern(settingsRef.current);
 
       let mediaAudio = null;
       if (isIOS) {
-        const countingIn = Boolean(practice) || (settingsRef.current.countIn && !preserveTempo);
+        const countingIn = settingsRef.current.countIn && !preserveTempo;
         const media = new Audio();
         media.loop = true;
         media.preload = "auto";
@@ -1070,11 +1070,10 @@ export default function App() {
             const gapMuted = Boolean(event.gap);
             const elapsed = performance.now() / 1000 - mediaAudio.startedAt;
             const nextMinuteDeadline =
-              !practice && current.trainer && current.changeMode === "minute"
+              current.trainer && current.changeMode === "minute"
                 ? advanceMinuteDeadline(elapsed, minuteDeadlineRef.current)
                 : null;
             const barsDue =
-              !practice &&
               current.trainer &&
               current.changeMode === "bars" &&
               enteredBar &&
@@ -1135,7 +1134,7 @@ export default function App() {
         settingsRef.current.bars.length,
       );
       const countInBarIndex = loopRange?.[0] ?? 0;
-      const countInBeats = practice || (settingsRef.current.countIn && !preserveTempo)
+      const countInBeats = settingsRef.current.countIn && !preserveTempo
         ? settingsRef.current.bars[countInBarIndex].beats.length
         : 0;
       const countInTicks = countInBeats * transport.PPQ;
@@ -1188,7 +1187,7 @@ export default function App() {
           barsRef.current > 0 &&
           barsRef.current % current.changeEvery === 0;
 
-        if (!practice && current.trainer && (barsDue || nextMinuteDeadline !== null)) {
+        if (current.trainer && (barsDue || nextMinuteDeadline !== null)) {
           if (nextMinuteDeadline !== null) minuteDeadlineRef.current = nextMinuteDeadline;
           const nextBpm = nextTrainingBpm(current.bpm, current.targetBpm, current.changeAmount);
           if (nextBpm !== current.bpm) {
@@ -1272,7 +1271,8 @@ export default function App() {
       setPlaying(true);
       setStatus(countInTicks ? "预备 1 小节" : "运行中");
       transport.start(countInTicks ? "+0.2" : preserveTempo ? "+0.025" : "+0.05");
-    } catch {
+    } catch (error) {
+      console.error("Unable to start playback", error);
       if (run === generationRef.current) stop("请再次点击");
     } finally {
       if (run === generationRef.current) startingRef.current = false;
