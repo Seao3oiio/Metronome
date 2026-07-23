@@ -34,7 +34,6 @@ import {
   MAX_SUBDIVISION,
   advanceMinuteDeadline,
   analyzeRhythmRecording,
-  applyBeatPattern,
   bpmFromTaps,
   clampBpm,
   compileRhythm,
@@ -44,6 +43,7 @@ import {
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
+  makeSingleBarRhythm,
   loopRangeFromSelection,
   moveBarSelection,
   normalizeBars,
@@ -1977,28 +1977,47 @@ export default function App() {
 
   const changeQuickMeter = (beats) => {
     const current = settingsRef.current;
-    const index = Math.min(editorBarIndex, current.bars.length - 1);
-    const bar = current.bars[index];
-    const resizedBeats = Array.from({ length: beats }, (_, beatIndex) =>
-      cloneBeat(bar.beats[Math.min(beatIndex, bar.beats.length - 1)]),
-    );
+    const subdivision = QUICK_PATTERNS.find(({ id }) => id === current.quickPatternId);
+    setEditorBarIndex(0);
+    setSelectingBars(false);
+    setSelectedBarIndexes([]);
+    setSelectedRhythmId("");
+    setRhythmName("");
     applyQuickRhythm({
-      bars: current.bars.map((candidate, barIndex) =>
-        barIndex === index ? { beats: resizedBeats } : candidate,
+      ...makeSingleBarRhythm(beats, subdivision?.steps ?? [1]),
+      quickPatternId: subdivision?.id ?? null,
+    });
+  };
+
+  const changeQuickBeatUnit = (beatUnit) => {
+    const current = settingsRef.current;
+    const index = Math.min(editorBarIndex, current.bars.length - 1);
+    const subdivision = QUICK_PATTERNS.find(({ id }) => id === current.quickPatternId);
+    setEditorBarIndex(0);
+    setSelectingBars(false);
+    setSelectedBarIndexes([]);
+    setSelectedRhythmId("");
+    setRhythmName("");
+    applyQuickRhythm({
+      beatUnit,
+      ...makeSingleBarRhythm(
+        current.bars[index].beats.length,
+        subdivision?.steps ?? [1],
       ),
+      quickPatternId: subdivision?.id ?? null,
     });
   };
 
   const changeQuickPattern = (option) => {
     const current = settingsRef.current;
     const index = Math.min(editorBarIndex, current.bars.length - 1);
-    const bar = current.bars[index];
+    setEditorBarIndex(0);
+    setSelectingBars(false);
+    setSelectedBarIndexes([]);
+    setSelectedRhythmId("");
+    setRhythmName("");
     applyQuickRhythm({
-      bars: current.bars.map((candidate, barIndex) =>
-        barIndex === index
-          ? { beats: applyBeatPattern(bar.beats, option.steps, bar.beats.length) }
-          : candidate,
-      ),
+      ...makeSingleBarRhythm(current.bars[index].beats.length, option.steps),
       quickPatternId: option.id,
     });
   };
@@ -2496,8 +2515,8 @@ export default function App() {
 
           <div className="setting-block quick-composer">
             <div className="quick-group">
-              <span className="quick-caption">常用细分 · 应用到当前小节</span>
-              <div className="rhythm-preset-grid" role="group" aria-label="常用节奏预设">
+              <span className="quick-caption">细分</span>
+              <div className="rhythm-preset-grid" role="group" aria-label="细分">
                 {QUICK_PATTERNS.map((option) => (
                   <button
                     key={option.id}
@@ -2512,19 +2531,11 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <button
-                className={`quick-toggle ${quickPattern ? "" : "is-active"}`}
-                type="button"
-                onClick={() => updateSettings({ quickPatternId: null })}
-                aria-pressed={!quickPattern}
-              >
-                自由细分（不采用预设）
-              </button>
             </div>
 
             <div className="quick-group">
-              <span className="quick-caption">当前小节拍号</span>
-              <div className="meter-wheels" role="group" aria-label="当前小节拍号">
+              <span className="quick-caption">拍号</span>
+              <div className="meter-wheels" role="group" aria-label="拍号">
                 <label>
                   <span className="sr-only">当前小节拍数</span>
                   <select
@@ -2541,7 +2552,7 @@ export default function App() {
                   <span className="sr-only">拍号音符</span>
                   <select
                     value={settings.beatUnit}
-                    onChange={(event) => updateSettings({ beatUnit: Number(event.target.value) })}
+                    onChange={(event) => changeQuickBeatUnit(Number(event.target.value))}
                   >
                     {BEAT_UNITS.map((unit) => (
                       <option key={unit} value={unit}>{unit}</option>

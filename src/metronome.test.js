@@ -20,6 +20,7 @@ import {
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
+  makeSingleBarRhythm,
   loopRangeFromSelection,
   moveBarSelection,
   normalizeBars,
@@ -209,6 +210,19 @@ test("quick subdivision selection yields to manual rhythm edits", () => {
   assert.equal(nextQuickPatternId("eighths", { beatUnit: 8 }), null);
   assert.equal(nextQuickPatternId("eighths", { quickPatternId: null }), null);
   assert.equal(nextQuickPatternId("eighths", { bars: [], quickPatternId: "triplet" }), "triplet");
+});
+
+test("quick meter and subdivision choices rebuild a single bar", () => {
+  assert.deepEqual(makeSingleBarRhythm(3, [1, 1]), {
+    bars: [{
+      beats: [
+        { steps: [2, 1] },
+        { steps: [1, 1] },
+        { steps: [1, 1] },
+      ],
+    }],
+    loopBar: null,
+  });
 });
 
 test("rhythm data and tempo training stay predictable", () => {
