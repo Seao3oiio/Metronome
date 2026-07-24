@@ -1,11 +1,41 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { writeFile } from "node:fs/promises";
 
 const pagesBase = process.env.PAGES_BASE || "/";
 const pwaId = process.env.PWA_ID || "/Metronome/";
+const isDevPages = pagesBase === "/Metronome-dev/";
 const socialImageUrl =
   `https://seao3oiio.github.io${pagesBase}kessoku-beat-hitori-social.png`;
+
+function devServiceWorkerCleanup() {
+  return {
+    name: "dev-service-worker-cleanup",
+    apply: "build",
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!isDevPages) return;
+        await writeFile(
+          new URL("./dist/sw.js", import.meta.url),
+          `self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true,
+    });
+    await Promise.all(clients.map((client) => client.navigate(client.url)));
+  })());
+});
+`,
+        );
+      },
+    },
+  };
+}
 
 export default defineConfig({
   base: pagesBase,
@@ -19,6 +49,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      injectRegister: isDevPages ? false : "auto",
       includeAssets: [
         "icon.svg",
         "apple-touch-icon.png",
@@ -53,5 +84,6 @@ export default defineConfig({
         ],
       },
     }),
+    devServiceWorkerCleanup(),
   ],
 });
