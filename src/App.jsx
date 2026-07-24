@@ -34,7 +34,6 @@ import {
   compileRhythm,
   decodeRhythm,
   encodeRhythm,
-  hasOffbeatSteps,
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
@@ -49,7 +48,7 @@ import {
   removeBarSelection,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
-  soundForRhythmEvent,
+  rhythmVoiceForStep,
   toggleBeatStep,
 } from "./metronome.js";
 import {
@@ -105,13 +104,6 @@ const SOUNDS = [
   { value: "soft", label: "柔和" },
 ];
 
-const SOUND_NOTES = {
-  click: { accent: 1660, normal: 1080, duration: 0.025 },
-  wood: { accent: 820, normal: 610, duration: 0.045 },
-  drum: { accent: 180, normal: 120, duration: 0.07 },
-  soft: { accent: 940, normal: 720, duration: 0.04 },
-};
-
 const SETTINGS_SCHEMA_VERSION = 4;
 const DEFAULT_SETTINGS = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
@@ -121,8 +113,6 @@ const DEFAULT_SETTINGS = {
   loopBar: null,
   quickPatternId: null,
   sound: "click",
-  beatTrack: true,
-  rhythmTrack: true,
   trainer: false,
   startBpm: 96,
   targetBpm: 120,
@@ -132,7 +122,6 @@ const DEFAULT_SETTINGS = {
   gapClick: false,
   gapDifficulty: "medium",
   countIn: false,
-  distinguishOffbeats: true,
   volume: 100,
   muted: false,
 };
@@ -248,8 +237,6 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
         ? saved.quickPatternId
         : null,
       sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : "click",
-      beatTrack: saved.beatTrack !== false,
-      rhythmTrack: saved.rhythmTrack !== false,
       startBpm: clampBpm(saved.startBpm ?? saved.bpm ?? 96),
       targetBpm: clampBpm(saved.targetBpm ?? 120),
       changeMode: saved.changeMode === "minute" ? "minute" : "bars",
@@ -267,7 +254,6 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
       trainer: Boolean(saved.trainer),
       gapClick: Boolean(saved.gapClick),
       countIn: Boolean(saved.countIn),
-      distinguishOffbeats: saved.distinguishOffbeats !== false,
       gapDifficulty: GAP_DIFFICULTIES.some(({ value }) => value === saved.gapDifficulty)
         ? saved.gapDifficulty
         : defaults.gapDifficulty,
@@ -546,9 +532,6 @@ function mediaTrackKey(settings, gapPattern) {
   return JSON.stringify([
     settings.bpm,
     settings.sound,
-    settings.beatTrack,
-    settings.rhythmTrack,
-    settings.distinguishOffbeats,
     settings.loopBar,
     settings.bars,
     settings.gapClick,
@@ -992,13 +975,17 @@ export default function App() {
           const bar = settingsRef.current.bars[range?.[0] ?? 0];
           const countInUrl = URL.createObjectURL(
             new Blob([
-              makeClickTrackWav({
-                ...settingsRef.current,
-                bars: [makeBar(bar.beats.length, 1)],
-                loopBar: null,
-                beatTrack: true,
-                rhythmTrack: false,
-              }),
+              makeClickTrackWav(
+                {
+                  ...settingsRef.current,
+                  bars: [makeBar(bar.beats.length, 1)],
+                  loopBar: null,
+                },
+                12000,
+                1,
+                [],
+                { accent: 0.62, normal: 0.34 },
+              ),
             ], { type: "audio/wav" }),
           );
           const countInMedia = new Audio(countInUrl);
@@ -1089,10 +1076,7 @@ export default function App() {
               beat: event.beat,
               sub: event.sub,
               pulse: performance.now(),
-              hit: Boolean(
-                !gapMuted &&
-                ((current.beatTrack && event.sub === 0) || (current.rhythmTrack && step > 0)),
-              ),
+              hit: Boolean(!gapMuted && step > 0),
               gap: gapMuted,
             });
             mediaAudio.lastEvent = eventIndex;
@@ -1139,10 +1123,10 @@ export default function App() {
         ? new Tone.Part(
             (time, { beat }) => {
               const current = settingsRef.current;
-              const note = SOUND_NOTES[current.sound];
-              instruments[current.sound].triggerAttackRelease(
-                beat === 0 ? note.accent : note.normal,
-                note.duration,
+              const voice = rhythmVoiceForStep(current.sound, beat === 0 ? 2 : 1);
+              instruments[voice.sound].triggerAttackRelease(
+                voice.frequency,
+                voice.duration,
                 time,
                 beat === 0 ? 1 : 0.74,
               );
@@ -1200,28 +1184,13 @@ export default function App() {
           }
         }
 
-        if (!eventGapMuted && current.beatTrack && event.sub === 0) {
-          const note = SOUND_NOTES[current.sound];
-          instruments[current.sound].triggerAttackRelease(
-            event.beat === 0 ? note.accent : note.normal,
-            note.duration,
+        const voice = rhythmVoiceForStep(current.sound, step);
+        if (!eventGapMuted && voice) {
+          instruments[voice.sound].triggerAttackRelease(
+            voice.frequency,
+            voice.duration,
             time,
-            event.beat === 0 ? 0.62 : 0.34,
-          );
-        }
-        if (!eventGapMuted && current.rhythmTrack && step > 0) {
-          const rhythmSound = soundForRhythmEvent(
-            current.sound,
-            current.beatTrack,
-            event.sub,
-            current.distinguishOffbeats,
-          );
-          const note = SOUND_NOTES[rhythmSound];
-          instruments[rhythmSound].triggerAttackRelease(
-            step === 2 ? note.accent : note.normal,
-            note.duration,
-            time,
-            step === 2 ? 1 : 0.82,
+            voice.velocity,
           );
         }
 
@@ -1232,10 +1201,7 @@ export default function App() {
             beat: event.beat,
             sub: event.sub,
             pulse: performance.now(),
-            hit: Boolean(
-              !eventGapMuted &&
-              ((current.beatTrack && event.sub === 0) || (current.rhythmTrack && step > 0)),
-            ),
+            hit: Boolean(!eventGapMuted && step > 0),
             gap: eventGapMuted,
           });
         }, time);
@@ -1670,16 +1636,25 @@ export default function App() {
       settingsRef.current.loopBar,
       settingsRef.current.bars.length,
     );
-    if (selectingBars && activeBarIndexes.length) {
-      const range = [activeBarIndexes[0], activeBarIndexes.at(-1)];
-      const matches = current?.[0] === range[0] && current?.[1] === range[1];
-      if (!matches) setSelectedBarIndexes(barIndexesInRange(range));
-      applyQuickRhythm({ loopBar: matches ? null : range });
-      setStatus(matches ? "循环全部小节" : "循环所选段落");
-    } else {
-      applyQuickRhythm({ loopBar: current ? null : [editorBarIndex, editorBarIndex] });
-      setStatus(current ? "循环全部小节" : "循环当前小节");
+    if (!selectingBars) {
+      const range = current ?? [editorBarIndex, editorBarIndex];
+      setSelectedBarIndexes(barIndexesInRange(range));
+      setSelectingBars(true);
+      if (!current) applyQuickRhythm({ loopBar: range });
+      setStatus(current ? "点选要操作的小节" : "循环当前小节");
+      return;
     }
+
+    const indexes = activeBarIndexes.length ? activeBarIndexes : [editorBarIndex];
+    const range = [indexes[0], indexes.at(-1)];
+    const matches = current?.[0] === range[0] && current?.[1] === range[1];
+    if (!matches) setSelectedBarIndexes(barIndexesInRange(range));
+    applyQuickRhythm({ loopBar: matches ? null : range });
+    if (matches) {
+      setSelectedBarIndexes([]);
+      setSelectingBars(false);
+    }
+    setStatus(matches ? "循环全部小节" : "循环所选段落");
   };
 
   const changeQuickMeter = (beats) => {
@@ -1922,13 +1897,13 @@ export default function App() {
 
   const loopActionLabel = selectedLoopRange
     ? selectedLoopMatches
-      ? ui("循环全部小节", "Loop all bars")
+      ? ui("取消循环", "Clear loop")
       : activeBarIndexes.length > 1
         ? ui("循环所选段落", "Loop selection")
         : ui("循环所选小节", "Loop selected bar")
     : loopRange
-      ? ui("循环全部小节", "Loop all bars")
-      : ui("循环当前小节", "Loop current bar");
+      ? ui("编辑循环小节", "Edit loop bars")
+      : ui("选择循环小节", "Select loop bars");
   const canMoveBarsLeft = activeBarIndexes.some(
     (index) => index > 0 && !activeBarIndexSet.has(index - 1),
   );
@@ -1936,7 +1911,6 @@ export default function App() {
     (index) => index < settings.bars.length - 1 && !activeBarIndexSet.has(index + 1),
   );
   const quickPattern = settings.quickPatternId;
-  const quickHasOffbeats = hasOffbeatSteps(settings.bars);
   const matrixHeight =
     Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
       48 +
@@ -2276,20 +2250,6 @@ export default function App() {
                 </div>
               </div>
 
-              <button
-                className={
-                  settings.distinguishOffbeats && quickHasOffbeats
-                    ? "quick-toggle is-active"
-                    : "quick-toggle"
-                }
-                type="button"
-                onClick={() =>
-                  updateSettings({ distinguishOffbeats: !settings.distinguishOffbeats })}
-                aria-pressed={settings.distinguishOffbeats && quickHasOffbeats}
-                disabled={!quickHasOffbeats}
-              >
-                {ui("正反拍音色区分", "Differentiate offbeat sound")}
-              </button>
             </div>
 
             <div className="setting-block audio-control-block">
@@ -2297,7 +2257,7 @@ export default function App() {
                 <span>{ui("声音", "Sound")}</span>
                 <small>{settings.muted ? ui("静音", "Muted") : `${settings.volume}%`}</small>
               </div>
-              <div className="sound-grid" aria-label={ui("节拍音色", "Metronome sound")}>
+              <div className="sound-grid" aria-label={ui("节奏音色", "Rhythm sound")}>
                 {SOUNDS.map((sound) => (
                   <button
                     key={sound.value}
@@ -2337,50 +2297,24 @@ export default function App() {
                   value={settings.volume}
                   onChange={(event) =>
                     updateSettings({ volume: Number(event.target.value), muted: false })}
-                  aria-label={ui("节拍音量", "Metronome volume")}
+                  aria-label={ui("节奏音量", "Rhythm volume")}
                   style={{ "--range-progress": `${settings.volume}%` }}
                 />
               </div>
             </div>
             <div
-              className="setting-block gap-click track-controls playback-options-block"
+              className="setting-block playback-options-block"
               role="group"
-              aria-label={ui("播放控制", "Playback controls")}
+              aria-label={ui("播放选项", "Playback options")}
             >
               <button
-                className={`track-toggle track-count-in ${settings.countIn ? "is-active" : ""}`}
+                className={settings.countIn ? "is-active" : ""}
                 type="button"
                 onClick={() => updateSettings({ countIn: !settings.countIn })}
                 aria-pressed={settings.countIn}
                 title={ui("开始前预备一小节", "Count in for one bar before starting")}
               >
                 <span>{ui("预备拍", "Count-in")}</span>
-              </button>
-              <button
-                className={`track-toggle track-beat ${settings.beatTrack ? "is-active" : ""}`}
-                type="button"
-                onClick={() => updateSettings({ beatTrack: !settings.beatTrack })}
-                aria-pressed={settings.beatTrack}
-                title={ui(
-                  "每拍固定响一次，第一拍重音",
-                  "Sound once per beat, with an accent on the first beat",
-                )}
-              >
-                <i className="beat-track-mark" aria-hidden="true" />
-                <span>{ui("节拍", "Beat")}</span>
-              </button>
-              <button
-                className={`track-toggle track-rhythm ${settings.rhythmTrack ? "is-active" : ""}`}
-                type="button"
-                onClick={() => updateSettings({ rhythmTrack: !settings.rhythmTrack })}
-                aria-pressed={settings.rhythmTrack}
-                title={ui(
-                  "只在实际弹奏的音符起点响",
-                  "Sound only when a played note begins",
-                )}
-              >
-                <i className="rhythm-track-mark" aria-hidden="true" />
-                <span>{ui("节奏", "Rhythm")}</span>
               </button>
               <div className="gap-row">
                 <button
@@ -2389,8 +2323,8 @@ export default function App() {
                   onClick={() => changeGapClick({ gapClick: !settings.gapClick })}
                   aria-pressed={settings.gapClick}
                   title={ui(
-                    "时间轴继续，仅随机关闭声音和节拍动画",
-                    "Keep the timeline running while randomly muting sound and beat animation",
+                    "时间轴继续，仅随机关闭声音和播放动画",
+                    "Keep the timeline running while randomly muting sound and playback animation",
                   )}
                 >
                   <VolumeX />

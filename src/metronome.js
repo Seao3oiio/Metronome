@@ -10,25 +10,19 @@ const TRACK_SOUNDS = {
   drum: { accent: 180, normal: 120, duration: 0.07 },
   soft: { accent: 940, normal: 720, duration: 0.04 },
 };
+const RHYTHM_VELOCITIES = { accent: 1, normal: 0.82 };
 
-const RHYTHM_TRACK_SOUNDS = {
-  click: "drum",
-  wood: "drum",
-  drum: "click",
-  soft: "drum",
-};
-
-export function soundForRhythmEvent(sound, layered, subdivision, distinguishOffbeats = true) {
-  const beatSound = TRACK_SOUNDS[sound] ? sound : "click";
-  return layered || (distinguishOffbeats && subdivision > 0)
-    ? RHYTHM_TRACK_SOUNDS[beatSound]
-    : beatSound;
-}
-
-export function hasOffbeatSteps(bars) {
-  return bars.some((bar) =>
-    bar.beats.some((beat) => beat.steps.slice(1).some(Boolean)),
-  );
+export function rhythmVoiceForStep(sound, step) {
+  if (!step) return null;
+  const voiceSound = TRACK_SOUNDS[sound] ? sound : "click";
+  const note = TRACK_SOUNDS[voiceSound];
+  const accented = step === 2;
+  return {
+    sound: voiceSound,
+    frequency: accented ? note.accent : note.normal,
+    duration: note.duration,
+    velocity: accented ? RHYTHM_VELOCITIES.accent : RHYTHM_VELOCITIES.normal,
+  };
 }
 
 export function nextQuickPatternId(current, patch) {
@@ -386,17 +380,14 @@ export function rhythmEventIndexAtTime(seconds, bpm, plan) {
   return index;
 }
 
-export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapPattern = []) {
-  const {
-    bpm,
-    bars,
-    loopBar,
-    sound = "click",
-    beatTrack = true,
-    rhythmTrack = true,
-    distinguishOffbeats = true,
-  } = settings;
-  const beatSound = TRACK_SOUNDS[sound] ? sound : "click";
+export function makeClickTrackWav(
+  settings,
+  sampleRate = 12000,
+  cycles = 1,
+  gapPattern = [],
+  velocities = RHYTHM_VELOCITIES,
+) {
+  const { bpm, bars, loopBar, sound = "click" } = settings;
   const plan = compileRhythm(bars, loopBar, 1, gapPattern);
   const beatSeconds = 60 / bpm;
   const frames = Math.ceil(cycles * plan.totalTicks * beatSeconds * sampleRate);
@@ -431,28 +422,13 @@ export function makeClickTrackWav(settings, sampleRate = 12000, cycles = 1, gapP
       const start = Math.round(
         (cycle * plan.totalTicks + event.ticks) * beatSeconds * sampleRate,
       );
-      if (beatTrack && event.sub === 0) {
-        const note = TRACK_SOUNDS[beatSound];
+      const voice = rhythmVoiceForStep(sound, step);
+      if (voice) {
         renderClick(
           start,
-          beatSound,
-          event.beat === 0 ? note.accent : note.normal,
-          event.beat === 0 ? 0.62 : 0.34,
-        );
-      }
-      if (rhythmTrack && step > 0) {
-        const rhythmSound = soundForRhythmEvent(
-          beatSound,
-          beatTrack,
-          event.sub,
-          distinguishOffbeats,
-        );
-        const note = TRACK_SOUNDS[rhythmSound];
-        renderClick(
-          start,
-          rhythmSound,
-          step === 2 ? note.accent : note.normal,
-          step === 2 ? 1 : 0.82,
+          voice.sound,
+          voice.frequency,
+          step === 2 ? velocities.accent : velocities.normal,
         );
       }
     }

@@ -388,24 +388,18 @@ input[type="range"]::-moz-range-thumb {
 .quick-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 142px;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 8px 14px;
   align-items: stretch;
 }
 
 .quick-composer > .quick-group:first-child {
   grid-column: 1;
-  grid-row: 1 / span 2;
+  grid-row: 1;
 }
 
 .quick-composer > .quick-group:nth-child(2) {
   grid-column: 2;
   grid-row: 1;
-}
-
-.quick-composer > .quick-toggle {
-  grid-column: 2;
-  grid-row: 2;
 }
 
 .quick-group {
@@ -418,22 +412,6 @@ input[type="range"]::-moz-range-thumb {
   font-size: 12px;
   font-weight: 650;
   text-align: center;
-}
-
-.quick-toggle {
-  min-height: 44px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--muted-strong);
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.quick-toggle.is-active {
-  border-color: rgba(116, 228, 208, 0.3);
-  background: rgba(116, 228, 208, 0.09);
-  color: var(--cyan);
 }
 
 .audio-control-block {
@@ -722,9 +700,9 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 650;
 }
 
-.gap-click {
+.playback-options-block {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 7px;
   margin-top: 8px;
   padding: 7px;
@@ -733,7 +711,7 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(7, 9, 13, 0.32);
 }
 
-.gap-click button {
+.playback-options-block button {
   min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -742,7 +720,7 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-.gap-click > button,
+.playback-options-block > button,
 .gap-row > button {
   display: inline-flex;
   gap: 7px;
@@ -751,35 +729,16 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 650;
 }
 
-.gap-click > button svg,
+.playback-options-block > button svg,
 .gap-row > button svg {
   width: 17px;
 }
 
-.gap-click > button.is-active,
+.playback-options-block > button.is-active,
 .gap-row > button.is-active {
   border-color: rgba(116, 228, 208, 0.3);
   background: rgba(116, 228, 208, 0.09);
   color: var(--cyan);
-}
-
-.track-controls i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--cyan);
-  box-shadow: 0 0 12px rgba(116, 228, 208, 0.45);
-}
-
-.track-controls .rhythm-track-mark {
-  background: var(--violet-bright);
-  box-shadow: 0 0 12px rgba(139, 123, 255, 0.45);
-}
-
-.track-controls > .track-rhythm.is-active {
-  border-color: rgba(139, 123, 255, 0.34);
-  background: rgba(139, 123, 255, 0.12);
-  color: var(--violet-bright);
 }
 
 .gap-row {
@@ -1549,20 +1508,15 @@ footer {
 
 @media (max-width: 560px) {
   .quick-composer {
-    grid-template-columns: minmax(116px, 1fr) minmax(80px, 0.8fr);
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
     gap: 10px;
   }
 
-  .quick-composer > .quick-group:first-child {
+  .quick-composer > .quick-group:first-child,
+  .quick-composer > .quick-group:nth-child(2) {
     grid-row: auto;
     grid-column: 1 / -1;
-  }
-
-  .quick-composer > .quick-group:nth-child(2),
-  .quick-composer > .quick-toggle {
-    grid-row: auto;
-    grid-column: auto;
   }
 
   .meter-wheels select {
@@ -2346,8 +2300,7 @@ body::before {
 .rhythm-library button,
 .advanced-transport > button,
 .advanced-playback > button,
-.quick-toggle,
-.track-controls > button,
+.playback-options-block > button,
 .gap-row > button,
 .gap-levels button,
 .matrix-control,
@@ -2364,8 +2317,7 @@ body::before {
 .rhythm-library button:hover,
 .advanced-transport > button:hover,
 .advanced-playback > button:hover,
-.quick-toggle:hover,
-.track-controls > button:hover,
+.playback-options-block > button:hover,
 .gap-row > button:hover,
 .gap-levels button:hover,
 .matrix-control:hover,
@@ -2466,18 +2418,10 @@ body::before {
 }
 
 .rhythm-preset-grid button.is-selected,
-.quick-toggle.is-active,
-.track-controls > button.is-active,
+.playback-options-block > button.is-active,
 .gap-row > button.is-active,
 .gap-levels button.is-selected,
 .sound-grid button.is-selected {
-  border-color: var(--ink);
-  background: var(--member-soft);
-  color: var(--ink);
-  box-shadow: 3px 3px 0 var(--member);
-}
-
-.track-controls > .track-rhythm.is-active {
   border-color: var(--ink);
   background: var(--member-soft);
   color: var(--ink);

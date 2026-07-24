@@ -14,7 +14,6 @@ import {
   cycleBeatState,
   decodeRhythm,
   encodeRhythm,
-  hasOffbeatSteps,
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
@@ -29,7 +28,7 @@ import {
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   removeBarSelection,
-  soundForRhythmEvent,
+  rhythmVoiceForStep,
   tempoName,
   toggleBeatStep,
 } from "./metronome.js";
@@ -398,8 +397,9 @@ test("click tracks are valid looping PCM WAV files", () => {
         bars: [{ beats: [{ steps: [0, 1] }] }],
         loopBar: null,
         sound: "click",
-        beatTrack: false,
-        rhythmTrack: true,
+        beatTrack: true,
+        rhythmTrack: false,
+        distinguishOffbeats: true,
       },
       8000,
       1,
@@ -431,11 +431,17 @@ test("click tracks are valid looping PCM WAV files", () => {
   assert.ok(samples.subarray(2000).every((sample) => sample === 0));
 });
 
-test("compound playback separates beat pulses from written note onsets", () => {
+test("rhythm playback only follows written note onsets", () => {
   const sampleRate = 8000;
-  const pcm = (bars, beatTrack, rhythmTrack) => new Int16Array(
+  const pcm = (steps, legacy = {}) => new Int16Array(
     makeClickTrackWav(
-      { bpm: 60, bars, loopBar: null, sound: "click", beatTrack, rhythmTrack },
+      {
+        bpm: 60,
+        bars: [{ beats: [{ steps }] }],
+        loopBar: null,
+        sound: "click",
+        ...legacy,
+      },
       sampleRate,
     ),
     44,
@@ -444,74 +450,91 @@ test("compound playback separates beat pulses from written note onsets", () => {
     .subarray(start, start + 400)
     .reduce((sum, sample) => sum + Math.abs(sample), 0);
 
-  const beatOnly = pcm([{ beats: [{ steps: [0] }, { steps: [0] }] }], true, false);
-  assert.ok(energy(beatOnly, 0) > energy(beatOnly, sampleRate));
-  assert.ok(energy(beatOnly, sampleRate) > 0);
-
-  const quarter = pcm([{ beats: [{ steps: [1] }] }], false, true);
+  const quarter = pcm([1]);
   assert.ok(energy(quarter, 0) > 0);
   assert.equal(energy(quarter, sampleRate / 2), 0);
-  const both = pcm([{ beats: [{ steps: [1] }] }], true, true);
-  assert.equal(both.findIndex(Boolean), beatOnly.findIndex(Boolean));
-  assert.equal(both.findIndex(Boolean), quarter.findIndex(Boolean));
 
-  const eighths = pcm([{ beats: [{ steps: [1, 1] }] }], false, true);
+  const eighths = pcm([1, 1]);
   assert.ok(energy(eighths, 0) > 0);
   assert.ok(energy(eighths, sampleRate / 2) > 0);
 
-  const rest = pcm([{ beats: [{ steps: [0] }] }], false, true);
+  const offbeat = pcm([0, 1]);
+  assert.ok(offbeat.subarray(0, sampleRate / 2).every((sample) => sample === 0));
+  assert.ok(energy(offbeat, sampleRate / 2) > 0);
+
+  const rest = pcm([0]);
   assert.ok(rest.every((sample) => sample === 0));
+
+  const legacyDisabled = pcm([1], {
+    beatTrack: false,
+    rhythmTrack: false,
+    distinguishOffbeats: true,
+  });
+  assert.ok(legacyDisabled.some(Boolean));
 });
 
-test("single-track rhythm keeps accents and distinguishes onbeats from offbeats", () => {
-  assert.equal(hasOffbeatSteps([makeBar(4, 1)]), false);
-  assert.equal(hasOffbeatSteps([makeBar(4, 2)]), true);
-  assert.equal(hasOffbeatSteps([{ beats: [{ steps: [1, 0] }] }]), false);
+test("rhythm voices keep the selected sound on onbeats and offbeats", () => {
+  const voices = {
+    click: { normal: 1080, accent: 1660, duration: 0.025 },
+    wood: { normal: 610, accent: 820, duration: 0.045 },
+    drum: { normal: 120, accent: 180, duration: 0.07 },
+    soft: { normal: 720, accent: 940, duration: 0.04 },
+  };
+  for (const [sound, note] of Object.entries(voices)) {
+    assert.equal(rhythmVoiceForStep(sound, 0), null);
+    assert.deepEqual(rhythmVoiceForStep(sound, 1), {
+      sound,
+      frequency: note.normal,
+      duration: note.duration,
+      velocity: 0.82,
+    });
+    assert.deepEqual(rhythmVoiceForStep(sound, 2), {
+      sound,
+      frequency: note.accent,
+      duration: note.duration,
+      velocity: 1,
+    });
+  }
+  assert.equal(rhythmVoiceForStep("unknown", 1).sound, "click");
 
-  assert.equal(soundForRhythmEvent("click", false, 0), "click");
-  assert.equal(soundForRhythmEvent("click", false, 1), "drum");
-  assert.equal(soundForRhythmEvent("click", false, 1, false), "click");
-  assert.equal(soundForRhythmEvent("click", true, 0), "drum");
-  assert.equal(soundForRhythmEvent("click", true, 1, false), "drum");
-
-  const pcm = (steps) => new Int16Array(
+  const pcm = (steps, sound = "click") => new Int16Array(
     makeClickTrackWav(
       {
         bpm: 60,
         bars: [{ beats: [{ steps }] }],
         loopBar: null,
-        sound: "click",
-        beatTrack: false,
-        rhythmTrack: true,
+        sound,
       },
       8000,
     ),
     44,
   );
   const energy = (samples) => samples.reduce((sum, sample) => sum + Math.abs(sample), 0);
-  assert.ok(energy(pcm([2])) > energy(pcm([1])));
 
   const dividedBeat = pcm([1, 1]);
   assert.ok(dividedBeat.subarray(250, 500).every((sample) => sample === 0));
-  assert.ok(dividedBeat.subarray(4250, 4500).some(Boolean));
+  assert.ok(dividedBeat.subarray(4050, 4150).some(Boolean));
 
-  const mergedOffbeats = new Int16Array(
-    makeClickTrackWav(
-      {
-        bpm: 60,
-        bars: [{ beats: [{ steps: [1, 1] }] }],
-        loopBar: null,
-        sound: "click",
-        beatTrack: false,
-        rhythmTrack: true,
-        distinguishOffbeats: false,
-      },
-      8000,
-    ),
-    44,
-  );
-  assert.deepEqual(
-    [...mergedOffbeats.subarray(0, 400)],
-    [...mergedOffbeats.subarray(4000, 4400)],
-  );
+  const signatures = Object.keys(voices).map((sound) => {
+    const divided = pcm([1, 1], sound);
+    const onbeat = [...divided.subarray(0, 600)];
+    const offbeat = [...divided.subarray(4000, 4600)];
+    assert.deepEqual(onbeat, offbeat);
+
+    const accented = pcm([2, 1], sound);
+    assert.ok(
+      energy(accented.subarray(0, 600)) >
+        energy(accented.subarray(4000, 4600)),
+    );
+    return onbeat;
+  });
+  signatures.forEach((signature) => assert.ok(signature.some(Boolean)));
+  for (let left = 0; left < signatures.length; left += 1) {
+    for (let right = left + 1; right < signatures.length; right += 1) {
+      assert.notDeepEqual(signatures[left], signatures[right]);
+    }
+  }
+
+  const withRest = pcm([1, 0, 1]);
+  assert.ok(withRest.subarray(300, 5200).every((sample) => sample === 0));
 });
