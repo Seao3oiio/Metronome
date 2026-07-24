@@ -591,7 +591,6 @@ function makeWorkletPlan(settings, gapPattern, ppq = 192) {
 
 function workletSettings(settings) {
   return {
-    bpm: settings.bpm,
     sound: settings.sound,
     trainer: settings.trainer,
     changeMode: settings.changeMode,
@@ -599,6 +598,21 @@ function workletSettings(settings) {
     changeAmount: settings.changeAmount,
     targetBpm: settings.targetBpm,
   };
+}
+
+function setWorkletBpm(audio, bpm) {
+  const nextBpm = clampBpm(bpm);
+  if (
+    !audio?.worklet ||
+    !audio.bpmParam ||
+    audio.bpmValue === nextBpm
+  ) {
+    return;
+  }
+  const now = audio.context.currentTime;
+  audio.bpmParam.cancelScheduledValues(now);
+  audio.bpmParam.setValueAtTime(nextBpm, now);
+  audio.bpmValue = nextBpm;
 }
 
 function workletSettingsKey(settings) {
@@ -979,6 +993,9 @@ export default function App() {
     }
     settingsRef.current = next;
     setSettings(next);
+    if ("bpm" in patch && audioRef.current?.worklet) {
+      setWorkletBpm(audioRef.current, next.bpm);
+    }
     if (audioRef.current?.media && pausedRef.current) {
       const volume = next.muted ? 0 : next.volume / 100;
       audioRef.current.targetVolume = volume;
@@ -1320,6 +1337,12 @@ export default function App() {
             numberOfOutputs: 1,
             outputChannelCount: [1],
           });
+          const bpmParam = node.parameters.get("bpm");
+          if (!bpmParam) {
+            throw new Error("AudioWorklet BPM parameter is unavailable");
+          }
+          const initialBpm = settingsRef.current.bpm;
+          bpmParam.setValueAtTime(initialBpm, context.currentTime);
           const loopRange = normalizeLoopRange(
             settingsRef.current.loopBar,
             settingsRef.current.bars.length,
@@ -1342,6 +1365,8 @@ export default function App() {
             context,
             node,
             output,
+            bpmParam,
+            bpmValue: initialBpm,
             gapPattern,
             gapPatternKey: gapPatternKeyValue,
             settingsKey: workletSettingsKey(settingsRef.current),
@@ -1455,6 +1480,7 @@ export default function App() {
           }, 2000);
           node.port.postMessage({
             type: "configure",
+            bpm: initialBpm,
             ...workletSettings(settingsRef.current),
             ...makeWorkletPlan(settingsRef.current, gapPattern),
             sampleBank,
@@ -1723,6 +1749,7 @@ export default function App() {
         if (playbackIntentRef.current) setStatus("继续播放原节奏");
       });
     } else if (audioRef.current?.worklet) {
+      setWorkletBpm(audioRef.current, settings.bpm);
       updateWorklet(audioRef.current, settings);
     } else if (!audioRef.current?.media) {
       const bpm = Tone.getTransport().bpm;

@@ -11,6 +11,18 @@ const nextTrainingBpm = (current, target, step) => {
 };
 
 export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      {
+        name: "bpm",
+        defaultValue: 96,
+        minValue: 30,
+        maxValue: 240,
+        automationRate: "k-rate",
+      },
+    ];
+  }
+
   constructor() {
     super();
     this.active = false;
@@ -23,6 +35,7 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
     this.totalTicks = 0;
     this.ppq = 192;
     this.bpm = 96;
+    this.lastRequestedBpm = 96;
     this.sound = "click";
     this.countInBeats = 0;
     this.countInBeat = 0;
@@ -60,16 +73,31 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
   }
 
   applySettings(data) {
-    this.bpm = clampBpm(data.bpm ?? this.bpm);
-    this.sound = SOUND_NAMES.includes(data.sound) ? data.sound : "click";
-    this.trainer = Boolean(data.trainer);
-    this.changeMode = data.changeMode === "minute" ? "minute" : "bars";
-    this.changeEvery = Math.max(1, Math.round(Number(data.changeEvery) || 4));
-    this.changeAmount = Math.max(1, Math.round(Number(data.changeAmount) || 10));
-    this.targetBpm = clampBpm(data.targetBpm ?? this.targetBpm);
+    if (SOUND_NAMES.includes(data.sound)) this.sound = data.sound;
+    if ("trainer" in data) this.trainer = Boolean(data.trainer);
+    if ("changeMode" in data) {
+      this.changeMode = data.changeMode === "minute" ? "minute" : "bars";
+    }
+    if ("changeEvery" in data) {
+      this.changeEvery = Math.max(
+        1,
+        Math.round(Number(data.changeEvery) || 4),
+      );
+    }
+    if ("changeAmount" in data) {
+      this.changeAmount = Math.max(
+        1,
+        Math.round(Number(data.changeAmount) || 10),
+      );
+    }
+    if ("targetBpm" in data) {
+      this.targetBpm = clampBpm(data.targetBpm);
+    }
   }
 
   configure(data) {
+    this.bpm = clampBpm(data.bpm ?? this.bpm);
+    this.lastRequestedBpm = this.bpm;
     this.applySettings(data);
     this.samples = data.sampleBank ?? {};
     this.events = Array.isArray(data.events) ? data.events : [];
@@ -230,7 +258,15 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
     return Math.max(-1, Math.min(1, mixed));
   }
 
-  process(_inputs, outputs) {
+  process(_inputs, outputs, parameters) {
+    const parameterBpm = parameters?.bpm?.[0];
+    if (Number.isFinite(parameterBpm)) {
+      const requestedBpm = clampBpm(parameterBpm);
+      if (requestedBpm !== this.lastRequestedBpm) {
+        this.lastRequestedBpm = requestedBpm;
+        this.bpm = requestedBpm;
+      }
+    }
     const channels = outputs[0];
     const frames = channels[0]?.length ?? 0;
     for (let frame = 0; frame < frames; frame += 1) {

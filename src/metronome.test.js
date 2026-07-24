@@ -575,6 +575,15 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
     await import(`./metronome-processor.js?test=${Date.now()}`);
 
     assert.equal(registeredName, "kessoku-metronome");
+    assert.deepEqual(RegisteredProcessor.parameterDescriptors, [
+      {
+        name: "bpm",
+        defaultValue: 96,
+        minValue: 30,
+        maxValue: 240,
+        automationRate: "k-rate",
+      },
+    ]);
     const processor = new RegisteredProcessor();
     const sampleBank = {
       "click:accent": new Float32Array([1, 0.5]),
@@ -643,6 +652,104 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
     processor.process([], [updated]);
     assert.equal(updated[0][0], 0);
     assert.equal(Number(updated[0][1].toFixed(3)), 0.205);
+
+    const stressProcessor = new RegisteredProcessor();
+    stressProcessor.port.onmessage({
+      data: {
+        type: "configure",
+        bpm: 96,
+        sound: "click",
+        ppq: 4,
+        totalTicks: 4,
+        events: [
+          { ticks: 0, bar: 0, beat: 0, sub: 0, gap: false, step: 2 },
+          { ticks: 1, bar: 0, beat: 0, sub: 1, gap: false, step: 1 },
+          { ticks: 2, bar: 0, beat: 0, sub: 2, gap: false, step: 1 },
+          { ticks: 3, bar: 0, beat: 0, sub: 3, gap: false, step: 1 },
+        ],
+        sampleBank,
+        countInBeats: 0,
+      },
+    });
+    let previousVisualCount = 0;
+    for (const bpm of [30, 240, 60, 180, 45, 220, 96]) {
+      const channels = [new Float32Array(32)];
+      stressProcessor.process([], [channels], {
+        bpm: new Float32Array([bpm]),
+      });
+      assert.ok(
+        channels[0].some((sample) => sample !== 0),
+        `${bpm} BPM should keep producing PCM`,
+      );
+      const visualCount = stressProcessor.port.messages.filter(
+        ({ type }) => type === "visual",
+      ).length;
+      assert.ok(
+        visualCount > previousVisualCount,
+        `${bpm} BPM should keep producing visual events`,
+      );
+      previousVisualCount = visualCount;
+      assert.equal(stressProcessor.bpm, bpm);
+      assert.equal(stressProcessor.lastRequestedBpm, bpm);
+    }
+
+    stressProcessor.port.onmessage({
+      data: { type: "update", bpm: 30 },
+    });
+    assert.equal(
+      stressProcessor.bpm,
+      96,
+      "message updates must not change the AudioParam-controlled BPM",
+    );
+
+    const trainerProcessor = new RegisteredProcessor();
+    trainerProcessor.port.onmessage({
+      data: {
+        type: "configure",
+        bpm: 120,
+        sound: "click",
+        trainer: true,
+        changeMode: "bars",
+        changeEvery: 1,
+        changeAmount: 10,
+        targetBpm: 130,
+        ppq: 1,
+        totalTicks: 1,
+        events: [
+          { ticks: 0, bar: 0, beat: 0, sub: 0, gap: false, step: 2 },
+        ],
+        sampleBank,
+        countInBeats: 0,
+      },
+    });
+    trainerProcessor.process(
+      [],
+      [[new Float32Array(6)]],
+      { bpm: new Float32Array([120]) },
+    );
+    assert.equal(trainerProcessor.bpm, 130);
+    assert.equal(trainerProcessor.lastRequestedBpm, 120);
+    assert.ok(
+      trainerProcessor.port.messages.some(
+        ({ type, bpm }) => type === "tempo" && bpm === 130,
+      ),
+    );
+    trainerProcessor.process(
+      [],
+      [[new Float32Array(4)]],
+      { bpm: new Float32Array([120]) },
+    );
+    assert.equal(
+      trainerProcessor.bpm,
+      130,
+      "an unchanged AudioParam must not undo an internal trainer change",
+    );
+    trainerProcessor.process(
+      [],
+      [[new Float32Array(1)]],
+      { bpm: new Float32Array([130]) },
+    );
+    assert.equal(trainerProcessor.lastRequestedBpm, 130);
   } finally {
     for (const [name, value] of Object.entries(previous)) {
       if (value === undefined) delete globalThis[name];
