@@ -543,3 +543,110 @@ test("rhythm voices keep the selected sound on onbeats and offbeats", () => {
   const withRest = pcm([1, 0, 1]);
   assert.ok(withRest.subarray(300, 5200).every((sample) => sample === 0));
 });
+
+test("audio worklet schedules samples, visuals, pause, and live updates", async () => {
+  const previous = {
+    AudioWorkletProcessor: globalThis.AudioWorkletProcessor,
+    registerProcessor: globalThis.registerProcessor,
+    sampleRate: globalThis.sampleRate,
+    currentTime: globalThis.currentTime,
+  };
+  let registeredName = null;
+  let RegisteredProcessor = null;
+
+  class MockAudioWorkletProcessor {
+    constructor() {
+      this.port = {
+        messages: [],
+        onmessage: null,
+        postMessage: (message) => this.port.messages.push(message),
+      };
+    }
+  }
+
+  try {
+    globalThis.AudioWorkletProcessor = MockAudioWorkletProcessor;
+    globalThis.registerProcessor = (name, Processor) => {
+      registeredName = name;
+      RegisteredProcessor = Processor;
+    };
+    globalThis.sampleRate = 8;
+    globalThis.currentTime = 0;
+    await import(`./metronome-processor.js?test=${Date.now()}`);
+
+    assert.equal(registeredName, "kessoku-metronome");
+    const processor = new RegisteredProcessor();
+    const sampleBank = {
+      "click:accent": new Float32Array([1, 0.5]),
+      "click:normal": new Float32Array([0.5, 0.25]),
+      "wood:accent": new Float32Array([0.75, 0.25]),
+      "wood:normal": new Float32Array([0.25, 0.1]),
+    };
+    const events = [
+      { ticks: 0, bar: 0, beat: 0, sub: 0, gap: false, step: 2 },
+      { ticks: 0.5, bar: 0, beat: 0, sub: 1, gap: false, step: 1 },
+    ];
+    processor.port.onmessage({
+      data: {
+        type: "configure",
+        bpm: 240,
+        sound: "click",
+        ppq: 1,
+        totalTicks: 1,
+        events,
+        sampleBank,
+        countInBeats: 0,
+      },
+    });
+    assert.equal(processor.port.messages[0].type, "ready");
+
+    const first = [new Float32Array(4)];
+    assert.equal(processor.process([], [first]), true);
+    assert.deepEqual(
+      [...first[0]].map((sample) => Number(sample.toFixed(2))),
+      [1, 0.41, 1, 0.41],
+    );
+    const visuals = processor.port.messages.filter(({ type }) => type === "visual");
+    assert.equal(visuals.length, 4);
+    assert.deepEqual(visuals[0].visual, {
+      bar: 0,
+      beat: 0,
+      sub: 0,
+      hit: true,
+      gap: false,
+    });
+    assert.equal(visuals[0].audioTime, 0);
+
+    processor.port.onmessage({ data: { type: "pause" } });
+    const paused = [new Float32Array(2)];
+    processor.process([], [paused]);
+    assert.ok(paused[0].every((sample) => sample === 0));
+
+    processor.port.onmessage({ data: { type: "update", sound: "wood" } });
+    processor.port.onmessage({ data: { type: "resume" } });
+    const scalarUpdate = [new Float32Array(1)];
+    processor.process([], [scalarUpdate]);
+    assert.equal(scalarUpdate[0][0], 0.75);
+
+    processor.port.onmessage({ data: { type: "pause" } });
+    processor.port.onmessage({
+      data: {
+        type: "update",
+        sound: "wood",
+        totalTicks: 1,
+        events: [{ ...events[0], step: 1 }],
+      },
+    });
+    processor.port.onmessage({ data: { type: "resume" } });
+    globalThis.currentTime = 0.5;
+    const updated = [new Float32Array(2)];
+    processor.process([], [updated]);
+    assert.equal(updated[0][0], 0);
+    assert.equal(Number(updated[0][1].toFixed(3)), 0.205);
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete globalThis[name];
+      else globalThis[name] = value;
+    }
+  }
+});
