@@ -417,6 +417,17 @@ function RhythmPatternGlyph({ steps, beatUnit }) {
 }
 
 function RhythmDot({ className, label, title, onPress, style, visualKey }) {
+  const activePointerRef = useRef(null);
+
+  const finishPointer = (event, trigger) => {
+    if (activePointerRef.current !== event.pointerId) return;
+    activePointerRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    if (trigger) onPress();
+  };
+
   return (
     <button
       className={className}
@@ -425,7 +436,18 @@ function RhythmDot({ className, label, title, onPress, style, visualKey }) {
       data-visual-editor-step={visualKey}
       aria-label={label}
       title={title}
-      onClick={onPress}
+      onPointerDown={(event) => {
+        if ((event.button !== undefined && event.button !== 0) || activePointerRef.current !== null) {
+          return;
+        }
+        activePointerRef.current = event.pointerId;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      }}
+      onPointerUp={(event) => finishPointer(event, true)}
+      onPointerCancel={(event) => finishPointer(event, false)}
+      onClick={(event) => {
+        if (event.detail === 0) onPress();
+      }}
     >
       <i aria-hidden="true" />
     </button>
