@@ -1335,12 +1335,17 @@ export default function App() {
   useEffect(() => {
     const handleKey = (event) => {
       if (event.target.closest("input, button, select, textarea, [contenteditable='true']")) return;
-      if ((event.key === " " || event.key.toLowerCase() === "t") && event.repeat) return;
+      const key = event.key.toLowerCase();
+      const isSpace = event.code === "Space" || event.key === " ";
+      if ((isSpace || key === "t" || key === "r") && event.repeat) return;
 
-      if (event.key === " ") {
+      if (isSpace) {
         event.preventDefault();
         togglePlayback();
-      } else if (event.key.toLowerCase() === "t") {
+      } else if (key === "r" && (playingRef.current || pausedRef.current)) {
+        event.preventDefault();
+        restartPlayback();
+      } else if (key === "t") {
         event.preventDefault();
         tapTempo();
       } else if (["ArrowUp", "ArrowRight"].includes(event.key)) {
@@ -1373,7 +1378,7 @@ export default function App() {
       window.removeEventListener("keydown", handleKey);
       document.removeEventListener("visibilitychange", restoreAudio);
     };
-  }, [setBpm, tapTempo, togglePlayback]);
+  }, [restartPlayback, setBpm, tapTempo, togglePlayback]);
 
   useEffect(
     () => () => {
@@ -2136,6 +2141,7 @@ export default function App() {
                 type="button"
                 onClick={restartPlayback}
                 aria-label={ui("重新开始", "Restart")}
+                aria-keyshortcuts="R"
                 title={ui("重新开始", "Restart")}
                 disabled={!playing && !paused}
               >
