@@ -64,7 +64,6 @@ const RHYTHM_LIBRARY_KEY = "pulse-rhythm-library-v1";
 const LEGACY_SETTINGS_KEY = "pulse-settings";
 const SETTINGS_KEY = "pulse-advanced-settings-v1";
 const APPEARANCE_KEY = "kessoku-beat-appearance-v1";
-const WORKLET_URL = new URL("./metronome-processor.js", import.meta.url);
 const TUTORIAL_PREFIX = "tutorial:";
 const CHARACTER_THEMES = [
   { id: "hitori", label: "後藤ひとり", ready: true },
@@ -536,73 +535,6 @@ function isIOSDevice() {
   );
 }
 
-let workletContextPromise = null;
-
-function supportsWorkletPlayback() {
-  return (
-    !isIOSDevice() &&
-    /Chrom(?:e|ium)|Edg\//.test(navigator.userAgent) &&
-    "AudioWorkletNode" in window &&
-    Boolean(window.AudioContext || window.webkitAudioContext)
-  );
-}
-
-async function getWorkletContext() {
-  if (!workletContextPromise) {
-    workletContextPromise = (async () => {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      const context = new AudioContextClass({ latencyHint: 0.04 });
-      await context.audioWorklet.addModule(WORKLET_URL);
-      return context;
-    })().catch((error) => {
-      workletContextPromise = null;
-      throw error;
-    });
-  }
-  const context = await workletContextPromise;
-  if (context.state !== "running") await context.resume();
-  return context;
-}
-
-function makeWorkletPlan(settings, gapPattern, ppq = 192) {
-  const plan = compileRhythm(settings.bars, settings.loopBar, ppq, gapPattern);
-  return {
-    ppq,
-    totalTicks: plan.totalTicks,
-    events: plan.events.map((event) => ({
-      ...event,
-      step: settings.bars[event.bar]?.beats[event.beat]?.steps[event.sub] ?? 0,
-    })),
-  };
-}
-
-function workletSettings(settings) {
-  return {
-    bpm: settings.bpm,
-    sound: settings.sound,
-    beatTrack: settings.beatTrack,
-    rhythmTrack: settings.rhythmTrack,
-    distinguishOffbeats: settings.distinguishOffbeats,
-    trainer: settings.trainer,
-    changeMode: settings.changeMode,
-    changeEvery: settings.changeEvery,
-    changeAmount: settings.changeAmount,
-    targetBpm: settings.targetBpm,
-  };
-}
-
-function rampOutput(audio, value, duration = 0.03) {
-  if (!audio?.output) return;
-  if (audio.worklet) {
-    const now = audio.context.currentTime;
-    audio.output.gain.cancelScheduledValues(now);
-    audio.output.gain.setValueAtTime(audio.output.gain.value, now);
-    audio.output.gain.linearRampToValueAtTime(value, now + duration);
-  } else {
-    audio.output.gain.rampTo(value, duration);
-  }
-}
-
 function makeActiveGapPattern(settings) {
   if (!settings.gapClick) return [];
   const range = normalizeLoopRange(settings.loopBar, settings.bars.length);
@@ -793,10 +725,7 @@ export default function App() {
 
   const setVisual = useCallback((next) => {
     visualRef.current = next;
-    if (playingRef.current && editorBarIndexRef.current !== next.bar) {
-      editorBarIndexRef.current = next.bar;
-      setEditorBarIndex(next.bar);
-    }
+    // Keep the audio draw callback out of React state; bar and beat markers are painted directly.
     paintVisual(next);
   }, [paintVisual]);
 
@@ -807,15 +736,6 @@ export default function App() {
 
   const disposeAudio = useCallback(() => {
     if (!audioRef.current) return;
-    if (audioRef.current.worklet) {
-      audioRef.current.node.port.onmessage = null;
-      audioRef.current.node.port.postMessage({ type: "stop" });
-      audioRef.current.visualTimers.forEach((timer) => clearTimeout(timer));
-      audioRef.current.node.disconnect();
-      audioRef.current.output.disconnect();
-      audioRef.current = null;
-      return;
-    }
     if (audioRef.current?.media) {
       audioRef.current.syncRevision = (audioRef.current.syncRevision ?? 0) + 1;
       cancelAnimationFrame(audioRef.current.raf);
@@ -925,9 +845,6 @@ export default function App() {
       audio.countInMedia?.pause();
       audio.pendingCandidate?.pause();
       audio.media.pause();
-    } else if (audio.worklet) {
-      rampOutput(audio, 0, 0.01);
-      audio.node.port.postMessage({ type: "pause" });
     } else {
       audio.output.gain.rampTo(0, 0.01);
       const transport = Tone.getTransport();
@@ -962,14 +879,6 @@ export default function App() {
           if (audio.media.paused) await audio.media.play();
           if (audio.draw) audio.raf = requestAnimationFrame(audio.draw);
         }
-      } else if (audio.worklet) {
-        await audio.context.resume();
-        audio.node.port.postMessage({ type: "resume" });
-        rampOutput(
-          audio,
-          settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
-          0.03,
-        );
       } else {
         await Tone.start();
         audio.output.gain.rampTo(
@@ -986,9 +895,6 @@ export default function App() {
         audio.countInMedia?.pause();
         audio.pendingCandidate?.pause();
         audio.media.pause();
-      } else if (audio.worklet) {
-        rampOutput(audio, 0, 0.01);
-        audio.node.port.postMessage({ type: "pause" });
       } else {
         audio.output.gain.rampTo(0, 0.01);
         const transport = Tone.getTransport();
@@ -1197,95 +1103,6 @@ export default function App() {
         mediaAudio.draw = draw;
         if (!pausedRef.current) mediaAudio.raf = requestAnimationFrame(draw);
         return;
-      }
-
-      if (supportsWorkletPlayback()) {
-        try {
-          const context = await getWorkletContext();
-          if (run !== generationRef.current) return;
-          const output = context.createGain();
-          output.gain.value =
-            settingsRef.current.muted ? 0 : settingsRef.current.volume / 100;
-          const node = new AudioWorkletNode(context, "kessoku-metronome", {
-            numberOfInputs: 0,
-            numberOfOutputs: 1,
-            outputChannelCount: [1],
-          });
-          const workletPlan = makeWorkletPlan(settingsRef.current, gapPattern);
-          const loopRange = normalizeLoopRange(
-            settingsRef.current.loopBar,
-            settingsRef.current.bars.length,
-          );
-          const countInBarIndex = loopRange?.[0] ?? 0;
-          const countInBeats = settingsRef.current.countIn && !preserveTempo
-            ? settingsRef.current.bars[countInBarIndex].beats.length
-            : 0;
-          const visualDelay = Math.max(
-            0,
-            ((context.baseLatency ?? 0) + (context.outputLatency ?? 0)) * 1000,
-          );
-          const workletAudio = {
-            worklet: true,
-            context,
-            node,
-            output,
-            gapPattern,
-            visualTimers: new Set(),
-            countingIn: Boolean(countInBeats),
-          };
-
-          node.port.onmessage = ({ data }) => {
-            if (
-              run !== generationRef.current ||
-              audioRef.current !== workletAudio
-            ) {
-              return;
-            }
-            if (data?.type === "visual") {
-              const timer = setTimeout(() => {
-                workletAudio.visualTimers.delete(timer);
-                if (
-                  run !== generationRef.current ||
-                  audioRef.current !== workletAudio ||
-                  !playingRef.current
-                ) {
-                  return;
-                }
-                setVisual({
-                  ...data.visual,
-                  bar: data.visual.bar ?? countInBarIndex,
-                  pulse: performance.now(),
-                });
-              }, visualDelay);
-              workletAudio.visualTimers.add(timer);
-            } else if (data?.type === "count-in-ended") {
-              workletAudio.countingIn = false;
-              setStatus("运行中");
-            } else if (data?.type === "tempo") {
-              const bpm = clampBpm(data.bpm);
-              if (bpm !== settingsRef.current.bpm) {
-                settingsRef.current = { ...settingsRef.current, bpm };
-                setBpmDraft(String(bpm));
-                updateSettings({ bpm }, false);
-              }
-            }
-          };
-          node.connect(output).connect(context.destination);
-          audioRef.current = workletAudio;
-          node.port.postMessage({
-            type: "configure",
-            ...workletSettings(settingsRef.current),
-            ...workletPlan,
-            countInBeats,
-          });
-          playingRef.current = true;
-          setPlaying(true);
-          setStatus(countInBeats ? "预备 1 小节" : "运行中");
-          return;
-        } catch (error) {
-          console.warn("AudioWorklet playback unavailable; using Tone.js", error);
-          if (run !== generationRef.current) return;
-        }
       }
 
       await Tone.start();
@@ -1545,13 +1362,6 @@ export default function App() {
       syncMediaLoop(audioRef.current, settings).catch(() => {
         if (playbackIntentRef.current) setStatus("继续播放原节奏");
       });
-    } else if (audioRef.current?.worklet) {
-      const audio = audioRef.current;
-      audio.node.port.postMessage({
-        type: "update",
-        ...workletSettings(settings),
-        ...makeWorkletPlan(settings, audio.gapPattern),
-      });
     } else if (!audioRef.current?.media) {
       const bpm = Tone.getTransport().bpm;
       if (Math.round(bpm.value) !== settings.bpm) bpm.value = settings.bpm;
@@ -1573,8 +1383,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    rampOutput(
-      audioRef.current,
+    audioRef.current?.output?.gain.rampTo(
       settings.muted ? 0 : settings.volume / 100,
       0.03,
     );
@@ -1610,14 +1419,7 @@ export default function App() {
           .then(() => setStatus("运行中"))
           .catch(() => setStatus("点击恢复"));
       }
-      if (audioRef.current?.worklet && audioRef.current.context.state !== "running") {
-        audioRef.current.context.resume().catch(() => setStatus("点击恢复"));
-      }
-      if (
-        !audioRef.current?.media &&
-        !audioRef.current?.worklet &&
-        Tone.getContext().state !== "running"
-      ) {
+      if (!audioRef.current?.media && Tone.getContext().state !== "running") {
         Tone.start().catch(() => setStatus("点击恢复"));
       }
     };
@@ -2091,13 +1893,9 @@ export default function App() {
 
   const changeTrainer = (patch) => {
     barsRef.current = 0;
-    if (audioRef.current?.worklet) {
-      audioRef.current.node.port.postMessage({ type: "reset-training" });
-    } else {
-      minuteDeadlineRef.current = audioRef.current?.media
-        ? performance.now() / 1000 - audioRef.current.startedAt + 60
-        : Tone.getTransport().seconds + 60;
-    }
+    minuteDeadlineRef.current = audioRef.current?.media
+      ? performance.now() / 1000 - audioRef.current.startedAt + 60
+      : Tone.getTransport().seconds + 60;
     updateSettings(patch);
   };
 
