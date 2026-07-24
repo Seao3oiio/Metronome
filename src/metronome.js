@@ -122,9 +122,9 @@ export function cycleBeatState(beat) {
   return { steps };
 }
 
-export function toggleBeatStep(beat, index, accent = false) {
+export function toggleBeatStep(beat, index) {
   const steps = [...beat.steps];
-  steps[index] = accent ? (steps[index] === 2 ? 1 : 2) : steps[index] === 0 ? 1 : 0;
+  steps[index] = steps[index] === 2 ? 1 : steps[index] === 1 ? 0 : 2;
   return { steps };
 }
 

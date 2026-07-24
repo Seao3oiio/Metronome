@@ -416,44 +416,7 @@ function RhythmPatternGlyph({ steps, beatUnit }) {
   );
 }
 
-function RhythmDot({ className, label, title, onPress, onHold, style, visualKey }) {
-  const timerRef = useRef(null);
-  const heldRef = useRef(false);
-  const pressedRef = useRef(false);
-
-  useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  const startHold = (event) => {
-    if (event.button !== undefined && event.button !== 0) {
-      pressedRef.current = false;
-      return;
-    }
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    pressedRef.current = true;
-    heldRef.current = false;
-    timerRef.current = setTimeout(() => {
-      heldRef.current = true;
-      onHold?.();
-    }, 480);
-  };
-  const cancelHold = () => clearTimeout(timerRef.current);
-
-  const finishPress = () => {
-    cancelHold();
-    if (!pressedRef.current) return;
-    pressedRef.current = false;
-    if (heldRef.current) {
-      heldRef.current = false;
-      return;
-    }
-    onPress();
-  };
-
-  const cancelPress = () => {
-    cancelHold();
-    pressedRef.current = false;
-  };
-
+function RhythmDot({ className, label, title, onPress, style, visualKey }) {
   return (
     <button
       className={className}
@@ -462,15 +425,7 @@ function RhythmDot({ className, label, title, onPress, onHold, style, visualKey 
       data-visual-editor-step={visualKey}
       aria-label={label}
       title={title}
-      onPointerDown={startHold}
-      onPointerUp={finishPress}
-      onPointerCancel={cancelPress}
-      onClick={(event) => event.detail === 0 && onPress()}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        if (!heldRef.current) onHold?.();
-        heldRef.current = true;
-      }}
+      onClick={onPress}
     >
       <i aria-hidden="true" />
     </button>
@@ -1465,8 +1420,8 @@ export default function App() {
     );
   };
 
-  const toggleStep = (beatIndex, sub, accent = false) => {
-    updateBeat(editorBarIndex, beatIndex, (beat) => toggleBeatStep(beat, sub, accent));
+  const toggleStep = (beatIndex, sub) => {
+    updateBeat(editorBarIndex, beatIndex, (beat) => toggleBeatStep(beat, sub));
   };
 
   const resizeBar = (amount) => {
@@ -2744,15 +2699,14 @@ export default function App() {
                                   "--dot-position": `${(sub / beat.steps.length) * 100}%`,
                                 }}
                                 onPress={() => toggleStep(beatIndex, sub)}
-                                onHold={() => toggleStep(beatIndex, sub, true)}
                                 visualKey={`${beatIndex}:${sub}`}
                                 label={ui(
                                   `第 ${beatIndex + 1} 拍第 ${sub + 1} 格：${stateName}`,
                                   `Beat ${beatIndex + 1}, step ${sub + 1}: ${stateName}`,
                                 )}
                                 title={ui(
-                                  `${stateName}；点击开关，长按切换强音`,
-                                  `${stateName}; click to toggle, hold to switch accent`,
+                                  `${stateName}；点击依次切换普通、静音与强音`,
+                                  `${stateName}; click to cycle normal, muted, and accent`,
                                 )}
                               />
                             );

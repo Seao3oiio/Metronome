@@ -279,7 +279,12 @@ test("rhythm data and tempo training stay predictable", () => {
   const normal = cycleBeatState(accent);
   assert.deepEqual(accent, { steps: [0, 2] });
   assert.deepEqual(normal, { steps: [0, 1] });
-  assert.deepEqual(toggleBeatStep({ steps: [0, 0] }, 1), { steps: [0, 1] });
+  const normalStep = toggleBeatStep({ steps: [2] }, 0);
+  const mutedStep = toggleBeatStep(normalStep, 0);
+  const accentedStep = toggleBeatStep(mutedStep, 0);
+  assert.deepEqual(normalStep, { steps: [1] });
+  assert.deepEqual(mutedStep, { steps: [0] });
+  assert.deepEqual(accentedStep, { steps: [2] });
   assert.deepEqual(applyBeatPattern([accent, normal], [1, 1, 1], 3), [
     { steps: [2, 1, 1] },
     { steps: [1, 1, 1] },
