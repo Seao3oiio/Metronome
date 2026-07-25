@@ -99,7 +99,6 @@ const GAP_DIFFICULTIES = [
 ];
 
 const SOUNDS = [
-  { value: "click", label: "清脆" },
   { value: "wood", label: "木鱼" },
   { value: "drum", label: "鼓点" },
   { value: "soft", label: "柔和" },
@@ -113,7 +112,7 @@ const DEFAULT_SETTINGS = {
   bars: null,
   loopBar: null,
   quickPatternId: null,
-  sound: "click",
+  sound: "wood",
   trainer: false,
   startBpm: 96,
   targetBpm: 120,
@@ -237,7 +236,7 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
       quickPatternId: QUICK_PATTERNS.some(({ id }) => id === saved.quickPatternId)
         ? saved.quickPatternId
         : null,
-      sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : "click",
+      sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : defaults.sound,
       startBpm: clampBpm(saved.startBpm ?? saved.bpm ?? 96),
       targetBpm: clampBpm(saved.targetBpm ?? 120),
       changeMode: saved.changeMode === "minute" ? "minute" : "bars",
@@ -457,11 +456,6 @@ function RhythmDot({ className, label, title, onPress, style, visualKey }) {
 
 function createInstruments(output) {
   return {
-    click: new Tone.Synth({
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.001, decay: 0.025, sustain: 0, release: 0.012 },
-      volume: -5,
-    }).connect(output),
     wood: new Tone.MembraneSynth({
       pitchDecay: 0.008,
       octaves: 1.6,
@@ -534,7 +528,7 @@ async function getWorkletContext() {
 async function getWorkletSampleBank(sampleRate) {
   if (!workletSampleBankPromise) {
     workletSampleBankPromise = (async () => {
-      const names = ["click", "wood", "drum", "soft"];
+      const names = SOUNDS.map(({ value }) => value);
       const voices = names.flatMap((sound) => [
         { sound, kind: "normal", step: 1 },
         { sound, kind: "accent", step: 2 },
@@ -2713,7 +2707,6 @@ export default function App() {
                     <i className={`sound-mark sound-${sound.value}`} aria-hidden="true" />
                     <span>
                       {ui(sound.label, {
-                        click: "Crisp",
                         wood: "Woodblock",
                         drum: "Drum",
                         soft: "Soft",

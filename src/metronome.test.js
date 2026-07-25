@@ -401,7 +401,7 @@ test("click tracks are valid looping PCM WAV files", () => {
         bpm: 120,
         bars: [{ beats: [{ steps: [0, 1] }] }],
         loopBar: null,
-        sound: "click",
+        sound: "wood",
         beatTrack: true,
         rhythmTrack: false,
         distinguishOffbeats: true,
@@ -415,7 +415,7 @@ test("click tracks are valid looping PCM WAV files", () => {
   assert.ok(partialBeat.subarray(2000).some(Boolean));
 
   const wav = makeClickTrackWav(
-    { bpm: 120, bars: [makeBar(2, 1)], loopBar: null, sound: "click" },
+    { bpm: 120, bars: [makeBar(2, 1)], loopBar: null, sound: "wood" },
     8000,
     2,
   );
@@ -444,7 +444,7 @@ test("rhythm playback only follows written note onsets", () => {
         bpm: 60,
         bars: [{ beats: [{ steps }] }],
         loopBar: null,
-        sound: "click",
+        sound: "wood",
         ...legacy,
       },
       sampleRate,
@@ -480,7 +480,6 @@ test("rhythm playback only follows written note onsets", () => {
 
 test("rhythm voices keep the selected sound on onbeats and offbeats", () => {
   const voices = {
-    click: { normal: 1080, accent: 1660, duration: 0.025 },
     wood: { normal: 610, accent: 820, duration: 0.045 },
     drum: { normal: 120, accent: 180, duration: 0.07 },
     soft: { normal: 720, accent: 940, duration: 0.04 },
@@ -500,9 +499,9 @@ test("rhythm voices keep the selected sound on onbeats and offbeats", () => {
       velocity: 1,
     });
   }
-  assert.equal(rhythmVoiceForStep("unknown", 1).sound, "click");
+  assert.equal(rhythmVoiceForStep("unknown", 1).sound, "wood");
 
-  const pcm = (steps, sound = "click") => new Int16Array(
+  const pcm = (steps, sound = "wood") => new Int16Array(
     makeClickTrackWav(
       {
         bpm: 60,
@@ -517,7 +516,7 @@ test("rhythm voices keep the selected sound on onbeats and offbeats", () => {
   const energy = (samples) => samples.reduce((sum, sample) => sum + Math.abs(sample), 0);
 
   const dividedBeat = pcm([1, 1]);
-  assert.ok(dividedBeat.subarray(250, 500).every((sample) => sample === 0));
+  assert.ok(dividedBeat.subarray(400, 500).every((sample) => sample === 0));
   assert.ok(dividedBeat.subarray(4050, 4150).some(Boolean));
 
   const signatures = Object.keys(voices).map((sound) => {
@@ -541,7 +540,7 @@ test("rhythm voices keep the selected sound on onbeats and offbeats", () => {
   }
 
   const withRest = pcm([1, 0, 1]);
-  assert.ok(withRest.subarray(300, 5200).every((sample) => sample === 0));
+  assert.ok(withRest.subarray(400, 5200).every((sample) => sample === 0));
 });
 
 test("audio worklet schedules samples, visuals, pause, and live updates", async () => {
@@ -586,8 +585,6 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
     ]);
     const processor = new RegisteredProcessor();
     const sampleBank = {
-      "click:accent": new Float32Array([1, 0.5]),
-      "click:normal": new Float32Array([0.5, 0.25]),
       "wood:accent": new Float32Array([0.75, 0.25]),
       "wood:normal": new Float32Array([0.25, 0.1]),
     };
@@ -599,7 +596,7 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
       data: {
         type: "configure",
         bpm: 240,
-        sound: "click",
+        sound: "wood",
         ppq: 1,
         totalTicks: 1,
         events,
@@ -613,7 +610,7 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
     assert.equal(processor.process([], [first]), true);
     assert.deepEqual(
       [...first[0]].map((sample) => Number(sample.toFixed(2))),
-      [1, 0.41, 1, 0.41],
+      [0.75, 0.2, 0.75, 0.2],
     );
     const visuals = processor.port.messages.filter(({ type }) => type === "visual");
     assert.equal(visuals.length, 4);
@@ -658,7 +655,7 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
       data: {
         type: "configure",
         bpm: 96,
-        sound: "click",
+        sound: "wood",
         ppq: 4,
         totalTicks: 4,
         events: [
@@ -707,7 +704,7 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
       data: {
         type: "configure",
         bpm: 120,
-        sound: "click",
+        sound: "wood",
         trainer: true,
         changeMode: "bars",
         changeEvery: 1,
