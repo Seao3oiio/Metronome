@@ -11776,33 +11776,9 @@ export const PRACTICE_PRESET_WEEKS = [
                 "beats": [
                   {
                     "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
                       1,
                       0,
                       1,
-                      1
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
                       1
                     ]
                   },
@@ -11830,6 +11806,9 @@ export const PRACTICE_PRESET_WEEKS = [
                 "beats": [
                   {
                     "steps": [
+                      1,
+                      0,
+                      1,
                       1
                     ]
                   },
@@ -11857,6 +11836,39 @@ export const PRACTICE_PRESET_WEEKS = [
                 "beats": [
                   {
                     "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      0,
+                      1,
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      0,
+                      1,
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      0,
+                      1,
+                      1
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
                       1,
                       0,
                       1,
@@ -11870,11 +11882,44 @@ export const PRACTICE_PRESET_WEEKS = [
                   },
                   {
                     "steps": [
+                      1,
+                      0,
+                      1,
                       1
                     ]
                   },
                   {
                     "steps": [
+                      1,
+                      0,
+                      1,
+                      1
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      0,
+                      1,
+                      1,
                       1
                     ]
                   }
@@ -11929,39 +11974,6 @@ export const PRACTICE_PRESET_WEEKS = [
                   },
                   {
                     "steps": [
-                      0,
-                      1,
-                      1,
-                      1
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0,
-                      1,
-                      1,
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0,
-                      1,
-                      1,
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
                       1
                     ]
                   }
@@ -11989,9 +12001,6 @@ export const PRACTICE_PRESET_WEEKS = [
                   },
                   {
                     "steps": [
-                      0,
-                      1,
-                      1,
                       1
                     ]
                   }
@@ -12030,173 +12039,173 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
+                      1,
+                      1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      0
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      0
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      1,
+                      1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      0
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
                       0,
                       1,
-                      1
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1,
-                      1,
-                      1,
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1,
-                      1,
-                      1,
-                      0
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
-                      1,
-                      1,
-                      1,
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1,
-                      1,
-                      1,
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1,
-                      0,
-                      1,
-                      1
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1,
-                      1,
-                      1,
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
-                      1,
-                      1,
-                      1,
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1,
-                      0,
-                      1,
-                      1
-                    ]
-                  }
-                ]
-              },
-              {
-                "beats": [
-                  {
-                    "steps": [
-                      0
-                    ]
-                  },
-                  {
-                    "steps": [
-                      1
-                    ]
-                  },
-                  {
-                    "steps": [
-                      0,
-                      1,
                       1,
                       1
                     ]
@@ -12223,17 +12232,17 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
-                      0,
                       1,
-                      1
+                      1,
+                      0
                     ]
                   },
                   {
                     "steps": [
                       1,
-                      0,
                       1,
-                      1
+                      1,
+                      0
                     ]
                   }
                 ]
@@ -15459,6 +15468,32 @@ export const PRACTICE_PRESET_WEEKS = [
                     ]
                   }
                 ]
+              },
+              {
+                "beats": [
+                  {
+                    "steps": [
+                      1,
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1,
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  },
+                  {
+                    "steps": [
+                      1
+                    ]
+                  }
+                ]
               }
             ],
             "loopBar": null
@@ -15774,7 +15809,6 @@ export const PRACTICE_PRESET_WEEKS = [
                   },
                   {
                     "steps": [
-                      0,
                       1
                     ]
                   },
@@ -15786,7 +15820,7 @@ export const PRACTICE_PRESET_WEEKS = [
                   },
                   {
                     "steps": [
-                      0
+                      1
                     ]
                   }
                 ]
@@ -16508,22 +16542,24 @@ export const PRACTICE_PRESET_WEEKS = [
                 "beats": [
                   {
                     "steps": [
+                      1,
                       1
                     ]
                   },
                   {
                     "steps": [
+                      1,
                       1
                     ]
                   },
                   {
                     "steps": [
-                      1
+                      0
                     ]
                   },
                   {
                     "steps": [
-                      1
+                      0
                     ]
                   }
                 ]

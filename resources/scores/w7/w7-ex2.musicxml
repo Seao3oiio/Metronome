@@ -11,12 +11,10 @@
       <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>60</per-minute></metronome></direction-type><sound tempo="60"/></direction>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>12</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>12</duration></note>
-      <note><rest/><duration>12</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>12</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>12</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>12</duration></note>
-      <note><rest/><duration>12</duration></note>
-      <note><rest/><duration>12</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
     </measure>
   </part>
 </score-partwise>

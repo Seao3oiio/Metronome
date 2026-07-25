@@ -161,155 +161,109 @@
     </measure>
     <measure number="9">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <!-- beats: 1011 | 1 | 1011 | 1 -->
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><rest/><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
     </measure>
     <measure number="10">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <!-- beats: 1011 | 1011 | 1 | 1 -->
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
     </measure>
     <measure number="11">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <!-- beats: 1 | 1011 | 1011 | 1011 -->
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
     </measure>
     <measure number="12">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
+      <!-- beats: 1011 | 1 | 1011 | 1011 -->
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><rest/><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
     </measure>
     <measure number="13">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <!-- beats: 1 | 1 | 1~ | ~111 -->
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration><tie type="start"/></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration><tie type="stop"/></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
     </measure>
     <measure number="14">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <!-- beats: 1 | 1~ | ~111 | 1 -->
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration><tie type="start"/></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration><tie type="stop"/></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
     </measure>
     <measure number="15">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <!-- beats: 1~ | ~111 | 1 | 1~ -->
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration><tie type="start"/></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration><tie type="stop"/></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration><tie type="start"/></note>
     </measure>
     <measure number="16">
       <attributes><divisions>24</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>percussion</sign><line>2</line></clef></attributes>
-      <note><rest/><duration>6</duration></note>
+      <!-- beats: ~111 | 1 | 1 | 1 -->
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration><tie type="stop"/></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><rest/><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
-      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>6</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>24</duration></note>
     </measure>
   </part>
 </score-partwise>
