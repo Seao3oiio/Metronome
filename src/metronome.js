@@ -5,7 +5,6 @@ export const MAX_SUBDIVISION = 12;
 export const BEAT_UNITS = [2, 4, 8, 16];
 
 const TRACK_SOUNDS = {
-  click: { accent: 1660, normal: 1080, duration: 0.025 },
   wood: { accent: 820, normal: 610, duration: 0.045 },
   drum: { accent: 180, normal: 120, duration: 0.07 },
   soft: { accent: 940, normal: 720, duration: 0.04 },
@@ -14,7 +13,7 @@ const RHYTHM_VELOCITIES = { accent: 1, normal: 0.82 };
 
 export function rhythmVoiceForStep(sound, step) {
   if (!step) return null;
-  const voiceSound = TRACK_SOUNDS[sound] ? sound : "click";
+  const voiceSound = TRACK_SOUNDS[sound] ? sound : "wood";
   const note = TRACK_SOUNDS[voiceSound];
   const accented = step === 2;
   return {
@@ -387,7 +386,7 @@ export function makeClickTrackWav(
   gapPattern = [],
   velocities = RHYTHM_VELOCITIES,
 ) {
-  const { bpm, bars, loopBar, sound = "click" } = settings;
+  const { bpm, bars, loopBar, sound = "wood" } = settings;
   const plan = compileRhythm(bars, loopBar, 1, gapPattern);
   const beatSeconds = 60 / bpm;
   const frames = Math.ceil(cycles * plan.totalTicks * beatSeconds * sampleRate);
@@ -400,15 +399,13 @@ export function makeClickTrackWav(
       const time = index / sampleRate;
       const phase = 2 * Math.PI * frequency * time;
       const wave =
-        trackSound === "click"
-          ? (2 / Math.PI) * Math.asin(Math.sin(phase))
-          : trackSound === "wood"
-            ? (Math.sin(phase) + 0.35 * Math.sin(phase * 3)) / 1.35
-            : Math.sin(
-                trackSound === "drum"
-                  ? phase * (1.8 - 0.8 * time / note.duration)
-                  : phase,
-              );
+        trackSound === "wood"
+          ? (Math.sin(phase) + 0.35 * Math.sin(phase * 3)) / 1.35
+          : Math.sin(
+              trackSound === "drum"
+                ? phase * (1.8 - 0.8 * time / note.duration)
+                : phase,
+            );
       const envelope = Math.min(1, time / 0.001) * Math.exp(-6 * time / note.duration);
       samples[(start + index) % frames] += wave * envelope * velocity * 0.75;
     }

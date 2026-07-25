@@ -1,4 +1,4 @@
-const SOUND_NAMES = ["click", "wood", "drum", "soft"];
+const SOUND_NAMES = ["wood", "drum", "soft"];
 
 const clampBpm = (value) =>
   Math.min(240, Math.max(30, Math.round(Number(value) || 0)));
@@ -36,7 +36,7 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
     this.ppq = 192;
     this.bpm = 96;
     this.lastRequestedBpm = 96;
-    this.sound = "click";
+    this.sound = "wood";
     this.countInBeats = 0;
     this.countInBeat = 0;
     this.nextCountInTick = 0;
@@ -138,7 +138,7 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
   }
 
   addVoice(sound, accented, velocity) {
-    const name = SOUND_NAMES.includes(sound) ? sound : "click";
+    const name = SOUND_NAMES.includes(sound) ? sound : "wood";
     const sample = this.samples[`${name}:${accented ? "accent" : "normal"}`];
     if (!(sample instanceof Float32Array) || sample.length === 0) return;
     this.voices[name] = { sample, frame: 0, velocity };
