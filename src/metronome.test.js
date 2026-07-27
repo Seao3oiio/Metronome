@@ -664,14 +664,15 @@ test("optional offbeat differentiation switches only subdivided notes", () => {
   );
 });
 
-test("volume stays on a 0–100 scale while the new maximum doubles output gain", () => {
+test("volume stays on a 0–100 scale while the new maximum quadruples output gain", () => {
   assert.equal(VOLUME_MAX, 100);
   assert.equal(volumeGain(0), 0);
-  assert.equal(volumeGain(50), 1);
-  assert.equal(volumeGain(100), 2);
-  assert.equal(volumeGain(150), 2);
+  assert.equal(volumeGain(25), 1);
+  assert.equal(volumeGain(50), 2);
+  assert.equal(volumeGain(100), 4);
+  assert.equal(volumeGain(150), 4);
   assert.equal(volumeGain(-1), 0);
-  assert.equal(volumeGain("invalid"), 2);
+  assert.equal(volumeGain("invalid"), 4);
 
   const settings = {
     bpm: 60,
@@ -686,7 +687,7 @@ test("volume stays on a 0–100 scale while the new maximum doubles output gain"
   );
   const energy = (samples) =>
     samples.reduce((sum, sample) => sum + Math.abs(sample), 0);
-  assert.ok(energy(boosted) > energy(normal) * 1.8);
+  assert.ok(energy(boosted) > energy(normal) * 3);
 });
 
 test("audio worklet schedules samples, visuals, pause, and live updates", async () => {

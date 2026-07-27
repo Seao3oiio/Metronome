@@ -4,7 +4,7 @@ export const MAX_BEATS = 6;
 export const MAX_SUBDIVISION = 12;
 export const BEAT_UNITS = [2, 4, 8, 16];
 export const VOLUME_MAX = 100;
-const VOLUME_GAIN_MAX = 2;
+const VOLUME_GAIN_MAX = 4;
 
 const TRACK_SOUNDS = {
   wood: { accent: 820, normal: 610, duration: 0.045 },
