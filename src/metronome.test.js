@@ -14,6 +14,7 @@ import {
   cycleBeatState,
   decodeRhythm,
   encodeRhythm,
+  hasOffbeatSteps,
   makeClickTrackWav,
   makeGapPattern,
   makeBar,
@@ -28,9 +29,12 @@ import {
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   removeBarSelection,
+  soundForRhythmEvent,
   rhythmVoiceForStep,
   tempoName,
   toggleBeatStep,
+  VOLUME_MAX,
+  volumeGain,
 } from "./metronome.js";
 
 test("notation glyphs cover every supported note value", () => {
@@ -625,6 +629,66 @@ test("rhythm voices keep the selected sound on onbeats and offbeats", () => {
   assert.ok(withRest.subarray(400, 5200).every((sample) => sample === 0));
 });
 
+test("optional offbeat differentiation switches only subdivided notes", () => {
+  assert.equal(soundForRhythmEvent("wood", 0, true), "wood");
+  assert.equal(soundForRhythmEvent("wood", 1, false), "wood");
+  assert.equal(soundForRhythmEvent("wood", 1, true), "drum");
+  assert.equal(soundForRhythmEvent("drum", 2, true), "wood");
+  assert.equal(soundForRhythmEvent("soft", 1, true), "drum");
+  assert.equal(soundForRhythmEvent("unknown", 1, true), "drum");
+  assert.equal(hasOffbeatSteps([makeBar(1, 1)]), false);
+  assert.equal(hasOffbeatSteps([{ beats: [{ steps: [0, 1] }] }]), true);
+
+  const pcm = (distinguishOffbeats) => new Int16Array(
+    makeClickTrackWav(
+      {
+        bpm: 60,
+        bars: [{ beats: [{ steps: [1, 1] }] }],
+        loopBar: null,
+        sound: "wood",
+        distinguishOffbeats,
+      },
+      8000,
+    ),
+    44,
+  );
+  const sameSound = pcm(false);
+  const differentSound = pcm(true);
+  assert.deepEqual(
+    [...sameSound.subarray(0, 600)],
+    [...sameSound.subarray(4000, 4600)],
+  );
+  assert.notDeepEqual(
+    [...differentSound.subarray(0, 600)],
+    [...differentSound.subarray(4000, 4600)],
+  );
+});
+
+test("volume stays on a 0–100 scale while the new maximum doubles output gain", () => {
+  assert.equal(VOLUME_MAX, 100);
+  assert.equal(volumeGain(0), 0);
+  assert.equal(volumeGain(50), 1);
+  assert.equal(volumeGain(100), 2);
+  assert.equal(volumeGain(150), 2);
+  assert.equal(volumeGain(-1), 0);
+  assert.equal(volumeGain("invalid"), 2);
+
+  const settings = {
+    bpm: 60,
+    bars: [makeBar(1, 1)],
+    loopBar: null,
+    sound: "soft",
+  };
+  const normal = new Int16Array(makeClickTrackWav(settings, 8000), 44);
+  const boosted = new Int16Array(
+    makeClickTrackWav(settings, 8000, 1, [], undefined, volumeGain(VOLUME_MAX)),
+    44,
+  );
+  const energy = (samples) =>
+    samples.reduce((sum, sample) => sum + Math.abs(sample), 0);
+  assert.ok(energy(boosted) > energy(normal) * 1.8);
+});
+
 test("audio worklet schedules samples, visuals, pause, and live updates", async () => {
   const previous = {
     AudioWorkletProcessor: globalThis.AudioWorkletProcessor,
@@ -731,6 +795,29 @@ test("audio worklet schedules samples, visuals, pause, and live updates", async 
     processor.process([], [updated]);
     assert.equal(updated[0][0], 0);
     assert.equal(Number(updated[0][1].toFixed(3)), 0.205);
+
+    const offbeatProcessor = new RegisteredProcessor();
+    offbeatProcessor.port.onmessage({
+      data: {
+        type: "configure",
+        bpm: 60,
+        sound: "wood",
+        distinguishOffbeats: true,
+        ppq: 1,
+        totalTicks: 1,
+        events: [
+          { ticks: 0, bar: 0, beat: 0, sub: 1, gap: false, step: 1 },
+        ],
+        sampleBank: {
+          "wood:normal": new Float32Array([0.2]),
+          "drum:normal": new Float32Array([0.8]),
+        },
+        countInBeats: 0,
+      },
+    });
+    const offbeatOutput = [new Float32Array(1)];
+    offbeatProcessor.process([], [offbeatOutput]);
+    assert.equal(Number(offbeatOutput[0][0].toFixed(3)), 0.656);
 
     const stressProcessor = new RegisteredProcessor();
     stressProcessor.port.onmessage({

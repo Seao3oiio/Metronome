@@ -1,4 +1,9 @@
 const SOUND_NAMES = ["wood", "drum", "soft"];
+const OFFBEAT_SOUNDS = {
+  wood: "drum",
+  drum: "wood",
+  soft: "drum",
+};
 
 const clampBpm = (value) =>
   Math.min(240, Math.max(30, Math.round(Number(value) || 0)));
@@ -37,6 +42,7 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
     this.bpm = 96;
     this.lastRequestedBpm = 96;
     this.sound = "wood";
+    this.distinguishOffbeats = false;
     this.countInBeats = 0;
     this.countInBeat = 0;
     this.nextCountInTick = 0;
@@ -74,6 +80,9 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
 
   applySettings(data) {
     if (SOUND_NAMES.includes(data.sound)) this.sound = data.sound;
+    if ("distinguishOffbeats" in data) {
+      this.distinguishOffbeats = Boolean(data.distinguishOffbeats);
+    }
     if ("trainer" in data) this.trainer = Boolean(data.trainer);
     if ("changeMode" in data) {
       this.changeMode = data.changeMode === "minute" ? "minute" : "bars";
@@ -196,8 +205,12 @@ export class KessokuMetronomeProcessor extends AudioWorkletProcessor {
     const gap = Boolean(event.gap);
     const hit = !gap && event.step > 0;
     if (hit) {
+      const eventSound =
+        this.distinguishOffbeats && event.sub > 0
+          ? OFFBEAT_SOUNDS[this.sound]
+          : this.sound;
       this.addVoice(
-        this.sound,
+        eventSound,
         event.step === 2,
         event.step === 2 ? 1 : 0.82,
       );

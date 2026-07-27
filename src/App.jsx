@@ -38,6 +38,7 @@ import {
   makeGapPattern,
   makeBar,
   makeSingleBarRhythm,
+  hasOffbeatSteps,
   loopRangeFromSelection,
   moveBarSelection,
   normalizeBars,
@@ -46,10 +47,13 @@ import {
   nextTrainingBpm,
   playbackVisualMarkers,
   removeBarSelection,
+  soundForRhythmEvent,
   rhythmEventIndexAtTime,
   rhythmDefaultName,
   rhythmVoiceForStep,
   toggleBeatStep,
+  VOLUME_MAX,
+  volumeGain,
 } from "./metronome.js";
 import {
   FLAG_GLYPHS,
@@ -104,7 +108,8 @@ const SOUNDS = [
   { value: "soft", label: "柔和" },
 ];
 
-const SETTINGS_SCHEMA_VERSION = 4;
+const SETTINGS_SCHEMA_VERSION = 5;
+const VOLUME_MIGRATION_SCHEMA_VERSION = 4;
 const DEFAULT_SETTINGS = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
   bpm: 96,
@@ -113,6 +118,7 @@ const DEFAULT_SETTINGS = {
   loopBar: null,
   quickPatternId: null,
   sound: "wood",
+  distinguishOffbeats: false,
   trainer: false,
   startBpm: 96,
   targetBpm: 120,
@@ -237,6 +243,9 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
         ? saved.quickPatternId
         : null,
       sound: SOUNDS.some(({ value }) => value === saved.sound) ? saved.sound : defaults.sound,
+      distinguishOffbeats:
+        Number(saved.schemaVersion ?? 0) >= SETTINGS_SCHEMA_VERSION &&
+        Boolean(saved.distinguishOffbeats),
       startBpm: clampBpm(saved.startBpm ?? saved.bpm ?? 96),
       targetBpm: clampBpm(saved.targetBpm ?? 120),
       changeMode: saved.changeMode === "minute" ? "minute" : "bars",
@@ -245,11 +254,11 @@ function loadSettings(storageKey = LEGACY_SETTINGS_KEY, fallbackKey = null) {
         ? saved.changeAmount
         : defaults.changeAmount,
       volume:
-        Number(saved.schemaVersion ?? 0) < SETTINGS_SCHEMA_VERSION &&
+        Number(saved.schemaVersion ?? 0) < VOLUME_MIGRATION_SCHEMA_VERSION &&
         Number(saved.volume) === 72
           ? defaults.volume
           : Number.isFinite(Number(saved.volume))
-            ? Math.min(100, Math.max(0, Number(saved.volume)))
+            ? Math.min(VOLUME_MAX, Math.max(0, Number(saved.volume)))
             : defaults.volume,
       trainer: Boolean(saved.trainer),
       gapClick: Boolean(saved.gapClick),
@@ -586,6 +595,7 @@ function makeWorkletPlan(settings, gapPattern, ppq = 192) {
 function workletSettings(settings) {
   return {
     sound: settings.sound,
+    distinguishOffbeats: settings.distinguishOffbeats,
     trainer: settings.trainer,
     changeMode: settings.changeMode,
     changeEvery: settings.changeEvery,
@@ -714,6 +724,8 @@ function mediaTrackKey(settings, gapPattern) {
   return JSON.stringify([
     settings.bpm,
     settings.sound,
+    settings.distinguishOffbeats,
+    Math.max(1, volumeGain(settings.volume)),
     settings.loopBar,
     settings.bars,
     settings.gapClick,
@@ -731,7 +743,7 @@ function releaseMedia(media, url) {
 }
 
 async function syncMediaLoop(audio, settings) {
-  audio.targetVolume = settings.muted ? 0 : settings.volume / 100;
+  audio.targetVolume = settings.muted ? 0 : Math.min(1, volumeGain(settings.volume));
   audio.media.volume = audio.countingIn ? 0 : audio.targetVolume;
   const key = mediaTrackKey(settings, audio.gapPattern);
   if (audio.mediaKey === key) return;
@@ -749,9 +761,16 @@ async function syncMediaLoop(audio, settings) {
       Math.ceil((120 * settings.bpm) / (60 * plan.totalTicks)),
     );
     const url = URL.createObjectURL(
-      new Blob([makeClickTrackWav(settings, 12000, cycles, audio.gapPattern)], {
-        type: "audio/wav",
-      }),
+      new Blob([
+        makeClickTrackWav(
+          settings,
+          12000,
+          cycles,
+          audio.gapPattern,
+          undefined,
+          Math.max(1, volumeGain(settings.volume)),
+        ),
+      ], { type: "audio/wav" }),
     );
     const candidate = new Audio();
     candidate.loop = true;
@@ -991,7 +1010,7 @@ export default function App() {
       setWorkletBpm(audioRef.current, next.bpm);
     }
     if (audioRef.current?.media && pausedRef.current) {
-      const volume = next.muted ? 0 : next.volume / 100;
+      const volume = next.muted ? 0 : Math.min(1, volumeGain(next.volume));
       audioRef.current.targetVolume = volume;
       audioRef.current.media.volume = audioRef.current.countingIn ? 0 : volume;
       if (audioRef.current.countInMedia) audioRef.current.countInMedia.volume = volume;
@@ -1082,13 +1101,13 @@ export default function App() {
         audio.node.port.postMessage({ type: "resume" });
         rampAudioOutput(
           audio,
-          settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
+          settingsRef.current.muted ? 0 : volumeGain(settingsRef.current.volume),
           0.03,
         );
       } else {
         await Tone.start();
         audio.output.gain.rampTo(
-          settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
+          settingsRef.current.muted ? 0 : volumeGain(settingsRef.current.volume),
           0.03,
         );
         Tone.getTransport().start("+0.05");
@@ -1185,7 +1204,10 @@ export default function App() {
           countInMedia: null,
           countInUrl: null,
           countInResolve: null,
-          targetVolume: settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
+          targetVolume:
+            settingsRef.current.muted
+              ? 0
+              : Math.min(1, volumeGain(settingsRef.current.volume)),
           gapPattern,
           pausedAt: null,
           paused: false,
@@ -1212,6 +1234,7 @@ export default function App() {
                 1,
                 [],
                 { accent: 0.62, normal: 0.34 },
+                Math.max(1, volumeGain(settingsRef.current.volume)),
               ),
             ], { type: "audio/wav" }),
           );
@@ -1325,7 +1348,7 @@ export default function App() {
 
           const output = context.createGain();
           output.gain.value =
-            settingsRef.current.muted ? 0 : settingsRef.current.volume / 100;
+            settingsRef.current.muted ? 0 : volumeGain(settingsRef.current.volume);
           const node = new AudioWorkletNode(context, "kessoku-metronome", {
             numberOfInputs: 0,
             numberOfOutputs: 1,
@@ -1504,7 +1527,7 @@ export default function App() {
 
       const transport = Tone.getTransport();
       const output = new Tone.Gain(
-        settingsRef.current.muted ? 0 : settingsRef.current.volume / 100,
+        settingsRef.current.muted ? 0 : volumeGain(settingsRef.current.volume),
       ).toDestination();
       const instruments = createInstruments(output);
 
@@ -1594,7 +1617,12 @@ export default function App() {
           }
         }
 
-        const voice = rhythmVoiceForStep(current.sound, step);
+        const eventSound = soundForRhythmEvent(
+          current.sound,
+          event.sub,
+          current.distinguishOffbeats,
+        );
+        const voice = rhythmVoiceForStep(eventSound, step);
         if (!eventGapMuted && voice) {
           instruments[voice.sound].triggerAttackRelease(
             voice.frequency,
@@ -1768,7 +1796,7 @@ export default function App() {
   useEffect(() => {
     rampAudioOutput(
       audioRef.current,
-      settings.muted ? 0 : settings.volume / 100,
+      settings.muted ? 0 : volumeGain(settings.volume),
       0.03,
     );
   }, [settings.muted, settings.volume]);
@@ -2348,6 +2376,7 @@ export default function App() {
     (index) => index < settings.bars.length - 1 && !activeBarIndexSet.has(index + 1),
   );
   const quickPattern = settings.quickPatternId;
+  const quickHasOffbeats = hasOffbeatSteps(settings.bars);
   const matrixHeight =
     Math.max(...settings.bars.flatMap((bar) => bar.beats.map((beat) => beat.steps.length))) *
       48 +
@@ -2715,6 +2744,34 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              <button
+                className={
+                  settings.distinguishOffbeats && quickHasOffbeats
+                    ? "offbeat-toggle is-active"
+                    : "offbeat-toggle"
+                }
+                type="button"
+                onClick={() =>
+                  updateSettings({ distinguishOffbeats: !settings.distinguishOffbeats })}
+                aria-pressed={settings.distinguishOffbeats && quickHasOffbeats}
+                disabled={!quickHasOffbeats}
+                title={ui(
+                  quickHasOffbeats
+                    ? "开启后正拍使用当前音色，反拍自动使用对比音色"
+                    : "当前节奏没有反拍音符",
+                  quickHasOffbeats
+                    ? "Keep the selected sound on downbeats and use a contrasting sound on offbeats"
+                    : "The current rhythm has no offbeat notes",
+                )}
+              >
+                <Repeat2 aria-hidden="true" />
+                <span>{ui("正反拍音色", "Downbeat / offbeat")}</span>
+                <small>
+                  {settings.distinguishOffbeats && quickHasOffbeats
+                    ? ui("已区分", "Different")
+                    : ui("同音色", "Same")}
+                </small>
+              </button>
               <div className="volume-control">
                 <button
                   className="volume-button"
@@ -2730,12 +2787,14 @@ export default function App() {
                 <input
                   type="range"
                   min="0"
-                  max="100"
+                  max={VOLUME_MAX}
                   value={settings.volume}
                   onChange={(event) =>
                     updateSettings({ volume: Number(event.target.value), muted: false })}
                   aria-label={ui("节奏音量", "Rhythm volume")}
-                  style={{ "--range-progress": `${settings.volume}%` }}
+                  style={{
+                    "--range-progress": `${(settings.volume / VOLUME_MAX) * 100}%`,
+                  }}
                 />
               </div>
             </div>

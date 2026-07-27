@@ -3,13 +3,43 @@ export const BPM_MAX = 240;
 export const MAX_BEATS = 6;
 export const MAX_SUBDIVISION = 12;
 export const BEAT_UNITS = [2, 4, 8, 16];
+export const VOLUME_MAX = 100;
+const VOLUME_GAIN_MAX = 2;
 
 const TRACK_SOUNDS = {
   wood: { accent: 820, normal: 610, duration: 0.045 },
   drum: { accent: 180, normal: 120, duration: 0.07 },
   soft: { accent: 940, normal: 720, duration: 0.04 },
 };
+const OFFBEAT_SOUNDS = {
+  wood: "drum",
+  drum: "wood",
+  soft: "drum",
+};
 const RHYTHM_VELOCITIES = { accent: 1, normal: 0.82 };
+
+export function volumeGain(value) {
+  const volume = Number(value);
+  const safeVolume = Number.isFinite(volume) ? volume : 100;
+  return (
+    Math.min(VOLUME_MAX, Math.max(0, safeVolume)) /
+    VOLUME_MAX *
+    VOLUME_GAIN_MAX
+  );
+}
+
+export function soundForRhythmEvent(sound, subdivision, distinguishOffbeats = false) {
+  const onbeatSound = TRACK_SOUNDS[sound] ? sound : "wood";
+  return distinguishOffbeats && subdivision > 0
+    ? OFFBEAT_SOUNDS[onbeatSound]
+    : onbeatSound;
+}
+
+export function hasOffbeatSteps(bars) {
+  return bars.some((bar) =>
+    bar.beats.some((beat) => beat.steps.slice(1).some(Boolean)),
+  );
+}
 
 export function rhythmVoiceForStep(sound, step) {
   if (!step) return null;
@@ -385,12 +415,20 @@ export function makeClickTrackWav(
   cycles = 1,
   gapPattern = [],
   velocities = RHYTHM_VELOCITIES,
+  outputGain = 1,
 ) {
-  const { bpm, bars, loopBar, sound = "wood" } = settings;
+  const {
+    bpm,
+    bars,
+    loopBar,
+    sound = "wood",
+    distinguishOffbeats = false,
+  } = settings;
   const plan = compileRhythm(bars, loopBar, 1, gapPattern);
   const beatSeconds = 60 / bpm;
   const frames = Math.ceil(cycles * plan.totalTicks * beatSeconds * sampleRate);
   const samples = new Float32Array(frames);
+  const masterGain = Math.max(0, Number(outputGain) || 0);
 
   const renderClick = (start, trackSound, frequency, velocity) => {
     const note = TRACK_SOUNDS[trackSound];
@@ -407,7 +445,8 @@ export function makeClickTrackWav(
                 : phase,
             );
       const envelope = Math.min(1, time / 0.001) * Math.exp(-6 * time / note.duration);
-      samples[(start + index) % frames] += wave * envelope * velocity * 0.75;
+      samples[(start + index) % frames] +=
+        wave * envelope * velocity * 0.75 * masterGain;
     }
   };
 
@@ -419,7 +458,12 @@ export function makeClickTrackWav(
       const start = Math.round(
         (cycle * plan.totalTicks + event.ticks) * beatSeconds * sampleRate,
       );
-      const voice = rhythmVoiceForStep(sound, step);
+      const eventSound = soundForRhythmEvent(
+        sound,
+        event.sub,
+        distinguishOffbeats,
+      );
+      const voice = rhythmVoiceForStep(eventSound, step);
       if (voice) {
         renderClick(
           start,
