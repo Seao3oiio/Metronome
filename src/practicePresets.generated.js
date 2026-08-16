@@ -14204,7 +14204,9 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
-                      1
+                      0,
+                      1,
+                      0
                     ]
                   },
                   {
@@ -14224,7 +14226,9 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
-                      1
+                      0,
+                      1,
+                      0
                     ]
                   },
                   {
@@ -14235,7 +14239,9 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
-                      1
+                      0,
+                      1,
+                      0
                     ]
                   }
                 ]
@@ -14250,13 +14256,17 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
-                      1
+                      0,
+                      1,
+                      0
                     ]
                   },
                   {
                     "steps": [
                       1,
-                      1
+                      0,
+                      1,
+                      0
                     ]
                   },
                   {
@@ -14271,7 +14281,9 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
-                      1
+                      0,
+                      1,
+                      0
                     ]
                   },
                   {
@@ -14287,7 +14299,9 @@ export const PRACTICE_PRESET_WEEKS = [
                   {
                     "steps": [
                       1,
-                      1
+                      0,
+                      1,
+                      0
                     ]
                   }
                 ]

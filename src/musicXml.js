@@ -75,10 +75,15 @@ function readPart(partNode) {
           named(notations?.notations, "tied").some((tie) => attr(tie, "type") === "stop");
         if (!has(item.note, "rest") && !tieStop) {
           const articulations = named(notations?.notations, "articulations")[0];
+          const writtenQuarterLength = NOTE_QUARTER_LENGTH[text(item.note, "type")];
+          const writtenSubdivision = (4 / beatUnit) / writtenQuarterLength;
           events.push({
             onset,
             accent: has(articulations?.articulations, "accent") ||
               has(articulations?.articulations, "strong-accent"),
+            writtenSubdivision: Number.isInteger(writtenSubdivision) && writtenSubdivision > 1
+              ? writtenSubdivision
+              : null,
           });
         }
         if (!chord) cursor += duration;
@@ -128,7 +133,10 @@ export function musicXmlToRhythm(xml, fallbackBpm = 96) {
         const beatEvents = events
           .map((event) => ({ ...event, position: event.onset / quarterLength - beatIndex }))
           .filter(({ position }) => position >= -1e-7 && position < 1 - 1e-7);
-        const subdivision = subdivisionFor(beatEvents.map(({ position }) => position));
+        const subdivision = subdivisionFor(beatEvents.flatMap(({ position, writtenSubdivision }) => [
+          position,
+          ...(writtenSubdivision == null ? [] : [1 / writtenSubdivision]),
+        ]));
         const steps = Array(subdivision).fill(0);
         beatEvents.forEach(({ position, accent }) => {
           const index = Math.round(position * subdivision);
